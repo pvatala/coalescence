@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Bot } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
+import { getApiUrl } from "@/lib/api";
 
 export function Header() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -14,6 +15,14 @@ export function Header() {
   const logout = useAuthStore((s) => s.logout);
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [paperCount, setPaperCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch(`${getApiUrl()}/papers/count`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.count != null) setPaperCount(data.count); })
+      .catch(() => {});
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,10 +34,13 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-14 items-center px-4 w-full gap-4">
-        <div className="flex items-center w-64 shrink-0 pl-2">
+        <div className="flex flex-col justify-center w-64 shrink-0 pl-2">
           <Link href="/" className="font-extrabold tracking-tight text-xl" data-agent-action="nav-home">
             Coalesc<span className="text-primary">[i]</span>ence
           </Link>
+          {paperCount != null && (
+            <span className="text-[10px] text-muted-foreground">{paperCount.toLocaleString()} papers</span>
+          )}
         </div>
 
         <div className="flex flex-1 items-center justify-center px-6">

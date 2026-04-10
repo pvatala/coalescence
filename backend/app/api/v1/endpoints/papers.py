@@ -57,6 +57,13 @@ def _paper_to_response(
     )
 
 
+@router.get("/count")
+async def get_paper_count(db: AsyncSession = Depends(get_db)):
+    """Return the total number of papers on the platform."""
+    result = await db.execute(select(func.count()).select_from(Paper))
+    return {"count": result.scalar() or 0}
+
+
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
     domain: Optional[str] = None,

@@ -1,29 +1,28 @@
-"""Leaderboard panels for the eval dashboard."""
+"""Unified leaderboard panels for the eval dashboard."""
 
 from __future__ import annotations
 
 from coalescence.dashboard import panel
-from coalescence.dashboard.render import render_cell, distribution_summary
-from coalescence.scorer.registry import get_display_hint
+from coalescence.dashboard.render import metric_header
+from coalescence.scorer.registry import get_description
 
-_PAPER_META = {"title", "domain"}
-_ACTOR_META = {"name", "actor_type"}
+
+_COLORS = {
+    "NLP": "#3b82f6",
+    "Bioinformatics": "#10b981",
+    "QuantumComputing": "#8b5cf6",
+    "LLM-Alignment": "#f59e0b",
+    "MaterialScience": "#ef4444",
+    "AI Safety": "#ec4899",
+    "Environment": "#22c55e",
+    "AI for Science": "#06b6d4",
+    "ML-Research": "#6366f1",
+}
 
 
 def _domain_tag(domain):
-    colors = {
-        "NLP": "#3b82f6",
-        "Bioinformatics": "#10b981",
-        "QuantumComputing": "#8b5cf6",
-        "LLM-Alignment": "#f59e0b",
-        "MaterialScience": "#ef4444",
-        "AI Safety": "#ec4899",
-        "Environment": "#22c55e",
-        "AI for Science": "#06b6d4",
-        "ML-Research": "#6366f1",
-    }
     name = domain.replace("d/", "").replace("#", "")
-    color = colors.get(name, "#6b7280")
+    color = _COLORS.get(name, "#6b7280")
     return (
         f'<span class="domain-tag" style="background:{color}15;color:{color};'
         f'border:1px solid {color}40">{name}</span>'
@@ -36,8 +35,93 @@ def _type_pill(actor_type):
     return f'<span class="pill {cls}">{label}</span>'
 
 
-def _scorer_cols(df, meta_cols):
-    return [c for c in df.columns if c not in meta_cols]
+def _bar(value, max_val, color="#6366f1"):
+    pct = min(100, (value / max_val * 100)) if max_val > 0 else 0
+    return (
+        f'<div style="display:inline-flex;align-items:center;gap:4px">'
+        f'<div style="width:60px;height:6px;background:#334155;border-radius:3px">'
+        f'<div style="width:{pct:.0f}%;height:100%;background:{color};border-radius:3px"></div>'
+        f"</div>"
+        f'<span style="font-size:12px;color:#94a3b8">{value:.0f}</span>'
+        f"</div>"
+    )
+
+
+def _sign(x):
+    return 1 if x > 0 else (-1 if x < 0 else 0)
+
+
+def _variance(vals):
+    n = len(vals)
+    if n < 2:
+        return 0.0
+    mean = sum(vals) / n
+    return sum((v - mean) ** 2 for v in vals) / n
+
+
+def _reviewer_types(actor_id, ds):
+    actor = ds.actors.get(actor_id)
+    if not actor:
+        return set()
+    types = {actor.actor_type}
+    parts = actor.name.rsplit("-", 2)
+    if len(parts) == 3:
+        types.add(f"role:{parts[0]}")
+        types.add(f"persona:{parts[2]}")
+    return types
+
+
+def _confidence_badge(diversity, agreement):
+    high_div = diversity > 0.5
+    high_agr = agreement > 0.5
+    if high_div and high_agr:
+        label, color = "Robust", "#4ade80"
+    elif not high_div and high_agr:
+        label, color = "Narrow", "#f59e0b"
+    elif high_div and not high_agr:
+        label, color = "Debated", "#60a5fa"
+    else:
+        label, color = "Weak", "#f87171"
+    return (
+        f'<span style="background:{color}20;color:{color};padding:2px 8px;'
+        f'border-radius:10px;font-size:11px;font-weight:600">{label}</span>'
+    )
+
+
+def _compute_paper_confidence(ds):
+    """Compute per-paper review confidence metrics."""
+    paper_signals = {}
+    paper_rtypes = {}
+
+    for paper in ds.papers:
+        pid = paper.id
+        signals = []
+        rtypes = set()
+
+        for vote in ds.votes.for_target(pid):
+            if vote.target_type == "PAPER":
+                signals.append(float(vote.vote_value))
+                rtypes |= _reviewer_types(vote.voter_id, ds)
+
+        for comment in ds.comments.roots_for(pid):
+            signals.append(float(_sign(comment.net_score)))
+            rtypes |= _reviewer_types(comment.author_id, ds)
+
+        paper_signals[pid] = signals
+        paper_rtypes[pid] = rtypes
+
+    max_div = max((len(rt) for rt in paper_rtypes.values()), default=1) or 1
+
+    result = {}
+    for pid, sigs in paper_signals.items():
+        if len(sigs) < 2:
+            result[pid] = (0, 0.0, 0.0)
+            continue
+        diversity = len(paper_rtypes[pid]) / max_div
+        agreement = max(0.0, min(1.0, 1.0 - _variance(sigs)))
+        result[pid] = (len(sigs), diversity, agreement)
+
+    return result
 
 
 @panel(title="Paper Leaderboard", order=1)
@@ -51,42 +135,90 @@ def paper_leaderboard(ds, results=None):
     if df.empty:
         return "<p>No paper scores available.</p>"
 
-    score_cols = _scorer_cols(df, _PAPER_META)
-    if not score_cols:
-        return "<p>No scorer dimensions registered.</p>"
+    # Get engagement and controversy from scorer results
+    has_engagement = "engagement" in df.columns
+    has_controversy = "controversy" in df.columns
 
-    sort_col = "engagement" if "engagement" in score_cols else score_cols[0]
-    filtered = df[df[sort_col] > 0] if sort_col in df.columns else df
-    top = filtered.sort_values(sort_col, ascending=False).head(15)
+    if not has_engagement:
+        return "<p>No engagement scorer registered.</p>"
 
-    # Header
-    header_cells = "<th>#</th><th>Title</th><th>Domain</th>"
-    for col in score_cols:
-        dist = distribution_summary(df[col])
-        header_cells += f'<th>{col}<br><span class="dist-summary">{dist}</span></th>'
+    # Compute confidence data
+    confidence = _compute_paper_confidence(ds)
+
+    # Sort by engagement, top 20
+    active = df[df["engagement"] > 0] if has_engagement else df
+    top = active.sort_values("engagement", ascending=False).head(20)
+
+    max_eng = top["engagement"].max() if not top.empty else 1
+    paper_by_id = {p.id: p for p in ds.papers}
+
+    about = (
+        '<p class="panel-about">'
+        "Ranked by engagement (reviews x2 + votes). "
+        "<strong>Confidence</strong>: "
+        '<span style="color:#4ade80">Robust</span> = diverse reviewers who agree, '
+        '<span style="color:#f59e0b">Narrow</span> = agreement but low diversity, '
+        '<span style="color:#60a5fa">Debated</span> = diverse but disagreeing, '
+        '<span style="color:#f87171">Weak</span> = few reviewers who disagree.'
+        "</p>"
+    )
+
+    header = (
+        "<th>#</th><th>Paper</th><th>Domain</th>"
+        f"<th>{metric_header('Engagement', get_description('paper', 'engagement'), None)}</th>"
+        "<th>Score</th>"
+        "<th>Reviews</th>"
+        "<th>Confidence</th>"
+    )
 
     rows = []
-    for rank, (idx, row) in enumerate(top.iterrows(), start=1):
-        title = str(row.get("title", idx))
-        title_display = title[:55] + "…" if len(title) > 55 else title
-        domain_cell = _domain_tag(str(row.get("domain", "")))
-        cells = f"<td>{rank}</td><td>{title_display}</td><td>{domain_cell}</td>"
-        for col in score_cols:
-            val = float(row.get(col, 0) or 0)
-            max_val = float(df[col].max() or 1)
-            hint = get_display_hint("paper", col)
-            cells += f"<td>{render_cell(val, max_val, hint)}</td>"
-        rows.append(f"<tr>{cells}</tr>")
+    for rank, (pid, row) in enumerate(top.iterrows(), 1):
+        paper = paper_by_id.get(pid)
+        title = row.get("title", "?")
+        title_short = (title[:50] + "...") if len(str(title)) > 50 else title
+        domain = row.get("domain", "")
+        eng = row.get("engagement", 0)
+        score = paper.net_score if paper else 0
+
+        # Confidence
+        n_rev, div, agr = confidence.get(pid, (0, 0.0, 0.0))
+        badge = (
+            _confidence_badge(div, agr)
+            if n_rev >= 2
+            else '<span style="color:#475569">--</span>'
+        )
+
+        # Score badge
+        if score >= 3:
+            score_color = "#4ade80"
+        elif score >= 0:
+            score_color = "#94a3b8"
+        else:
+            score_color = "#f87171"
+        score_html = (
+            f'<span style="color:{score_color};font-weight:600">{score:+d}</span>'
+        )
+
+        rows.append(
+            f"<tr>"
+            f'<td class="rank">#{rank}</td>'
+            f'<td class="title-cell">{title_short}</td>'
+            f"<td>{_domain_tag(str(domain))}</td>"
+            f"<td>{_bar(eng, max_eng)}</td>"
+            f"<td>{score_html}</td>"
+            f'<td class="num">{n_rev}</td>'
+            f"<td>{badge}</td>"
+            f"</tr>"
+        )
 
     return (
-        f'<table class="leaderboard">'
-        f"<thead><tr>{header_cells}</tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody>"
-        f"</table>"
+        about
+        + f"<table><thead><tr>{header}</tr></thead>"
+        + f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
 
-@panel(title="Actor Leaderboard", order=2)
+@panel(title="Reviewer Leaderboard", order=2)
 def actor_leaderboard(ds, results=None):
     if results is None:
         from coalescence.scorer.registry import run_all
@@ -97,38 +229,49 @@ def actor_leaderboard(ds, results=None):
     if df.empty:
         return "<p>No actor scores available.</p>"
 
-    score_cols = _scorer_cols(df, _ACTOR_META)
-    if not score_cols:
-        return "<p>No scorer dimensions registered.</p>"
+    has_trust = "community_trust" in df.columns
+    has_activity = "activity" in df.columns
+    has_breadth = "domain_breadth" in df.columns
+    has_depth = "comment_depth" in df.columns
 
-    sort_col = "community_trust" if "community_trust" in score_cols else score_cols[0]
-    filtered = df[df[sort_col] > 0] if sort_col in df.columns else df
-    top = filtered.sort_values(sort_col, ascending=False).head(15)
+    sort_col = "community_trust" if has_trust else df.columns[0]
+    active = df[df[sort_col] > 0] if sort_col in df.columns else df
+    top = active.sort_values(sort_col, ascending=False).head(15)
 
-    header_cells = "<th>#</th><th>Name</th><th>Type</th>"
-    for col in score_cols:
-        dist = distribution_summary(df[col])
-        header_cells += f'<th>{col}<br><span class="dist-summary">{dist}</span></th>'
+    max_trust = top["community_trust"].max() if has_trust and not top.empty else 1
+
+    header = (
+        "<th>#</th><th>Reviewer</th><th>Type</th>"
+        f"<th>{metric_header('Trust', get_description('actor', 'community_trust'), None)}</th>"
+        "<th>Reviews</th>"
+        "<th>Domains</th>"
+    )
+    if has_depth:
+        header += f"<th>{metric_header('Avg Length', get_description('actor', 'comment_depth'), None)}</th>"
 
     rows = []
-    for rank, (idx, row) in enumerate(top.iterrows(), start=1):
-        name = str(row.get("name", idx))
-        actor_type = str(row.get("actor_type", ""))
+    for rank, (aid, row) in enumerate(top.iterrows(), 1):
+        name = row.get("name", "?")
+        actor_type = row.get("actor_type", "")
+        trust = row.get("community_trust", 0) if has_trust else 0
+        activity_val = int(row.get("activity", 0)) if has_activity else 0
+        breadth = int(row.get("domain_breadth", 0)) if has_breadth else 0
+        depth = row.get("comment_depth", 0) if has_depth else 0
+
         cells = (
-            f"<td>{rank}</td>"
+            f'<td class="rank">#{rank}</td>'
             f"<td><strong>{name}</strong></td>"
-            f"<td>{_type_pill(actor_type)}</td>"
+            f"<td>{_type_pill(str(actor_type))}</td>"
+            f"<td>{_bar(trust, max_trust, '#10b981')}</td>"
+            f'<td class="num">{activity_val}</td>'
+            f'<td class="num">{breadth}</td>'
         )
-        for col in score_cols:
-            val = float(row.get(col, 0) or 0)
-            max_val = float(df[col].max() or 1)
-            hint = get_display_hint("actor", col)
-            cells += f"<td>{render_cell(val, max_val, hint)}</td>"
+        if has_depth:
+            cells += f'<td class="num">{depth:.0f}</td>'
+
         rows.append(f"<tr>{cells}</tr>")
 
     return (
-        f'<table class="leaderboard">'
-        f"<thead><tr>{header_cells}</tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody>"
-        f"</table>"
+        f"<table><thead><tr>{header}</tr></thead>"
+        + f"<tbody>{''.join(rows)}</tbody></table>"
     )

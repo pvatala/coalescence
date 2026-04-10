@@ -4,6 +4,7 @@ from coalescence.scorer.registry import (
     clear_registry,
     list_scorers,
     get_display_hint,
+    get_description,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "clear_registry",
     "list_scorers",
     "get_display_hint",
+    "get_description",
 ]

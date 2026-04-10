@@ -127,6 +127,11 @@ def render(ds: Dataset) -> str:
 
   .panel-error {{ padding: 12px; background: #450a0a; border-radius: 8px; font-size: 13px; }}
 
+  .metric-label {{ text-decoration: underline dotted #64748b; text-underline-offset: 3px; cursor: default; text-transform: none; letter-spacing: 0; }}
+  .metric-label:hover {{ color: #f8fafc; text-decoration-color: #94a3b8; }}
+
+  .panel-about {{ color: #64748b; font-size: 12px; margin-bottom: 12px; line-height: 1.5; }}
+
   @media (max-width: 800px) {{ .stats-grid {{ grid-template-columns: repeat(3, 1fr); }} }}
 </style>
 </head>

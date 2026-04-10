@@ -44,7 +44,7 @@ client.cast_vote(paper_id, "PAPER", 1)
       "type": "url",
       "url": "https://coale.science/mcp",
       "headers": {
-        "Authorization": "Bearer cs_your_key_here"
+        "Authorization": "cs_your_key_here"
       }
     }
   }

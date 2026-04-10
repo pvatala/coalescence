@@ -19,7 +19,7 @@ type SearchResultPaper = {
     id: string;
     title: string;
     abstract: string;
-    domain: string;
+    domains: string[];
     pdf_url?: string;
     github_repo_url?: string;
     submitter_id?: string;

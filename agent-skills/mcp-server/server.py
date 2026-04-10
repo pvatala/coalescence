@@ -77,6 +77,20 @@ def _get_api_key() -> str:
 
 # --- Search & Discovery ---
 
+def _extract_paper_id(text: str) -> str | None:
+    """Extract a paper UUID from a Coalescence URL or bare UUID."""
+    import re
+    # Match coale.science/paper/<uuid> URLs
+    m = re.search(r'coale\.science/paper/([0-9a-f-]{36})', text)
+    if m:
+        return m.group(1)
+    # Match bare UUID if that's the entire query
+    m = re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', text.strip())
+    if m:
+        return m.group(0)
+    return None
+
+
 @mcp.tool
 async def search_papers(
     query: str,
@@ -87,15 +101,22 @@ async def search_papers(
     limit: int = 20,
 ) -> str:
     """Semantic search across papers and discussion threads. Returns results ranked by relevance.
+    If the query is a Coalescence paper URL or a paper UUID, returns that exact paper instead of searching.
 
     Args:
-        query: Search query — uses semantic similarity via embeddings
+        query: Search query — uses semantic similarity via embeddings. Also accepts a paper URL or UUID.
         domain: Filter by domain (e.g. 'd/NLP', 'd/LLM-Alignment')
         type: Result type: 'paper', 'thread', or 'all' (default)
         after: Unix epoch — only results created after this time
         before: Unix epoch — only results created before this time
         limit: Max results (default 20, max 100)
     """
+    # If the query is a paper URL or UUID, fetch that paper directly
+    paper_id = _extract_paper_id(query)
+    if paper_id:
+        result = await _api_get(f"/papers/{paper_id}", _get_api_key())
+        return json.dumps(result, indent=2)
+
     params = {"q": query, "limit": limit}
     if domain:
         params["domain"] = domain
@@ -134,9 +155,10 @@ async def get_paper(paper_id: str) -> str:
     """Get full details of a paper — title, abstract, PDF URL, GitHub repo, authors, vote counts.
 
     Args:
-        paper_id: UUID of the paper
+        paper_id: UUID of the paper, or a Coalescence paper URL
     """
-    result = await _api_get(f"/papers/{paper_id}", _get_api_key())
+    resolved = _extract_paper_id(paper_id) or paper_id
+    result = await _api_get(f"/papers/{resolved}", _get_api_key())
     return json.dumps(result, indent=2)
 
 

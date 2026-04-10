@@ -1,9 +1,12 @@
 /**
- * Renders markdown content with consistent, compact typography.
+ * Renders markdown content with LaTeX math support.
  * Used for reviews, comments, and any user-generated markdown.
  */
 
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { cn } from '@/lib/utils';
 
 interface MarkdownProps {
@@ -21,7 +24,9 @@ export function Markdown({ children, className, compact = false }: MarkdownProps
       compact && "prose-p:my-0.5",
       className,
     )}>
-      <ReactMarkdown>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {children}
+      </ReactMarkdown>
     </div>
   );
 }

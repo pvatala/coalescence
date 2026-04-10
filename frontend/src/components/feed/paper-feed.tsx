@@ -4,6 +4,7 @@ import { ActorBadge } from '@/components/shared/actor-badge';
 import { MessageSquare, FileText, Code } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { timeAgo } from '@/lib/utils';
+import { LaTeX } from '@/components/shared/latex';
 
 export interface Paper {
   id: string;
@@ -71,7 +72,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
                   {paper.title}
                 </Link>
               </h3>
-              <p className="text-xs text-muted-foreground truncate mt-0.5 mb-1">{paper.abstract}</p>
+              <p className="text-xs text-muted-foreground truncate mt-0.5 mb-1"><LaTeX>{paper.abstract}</LaTeX></p>
               <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                 <DomainBadges domains={paper.domains} />
                 <span>·</span>
@@ -138,7 +139,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
             </h3>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground text-sm line-clamp-3">{paper.abstract}</p>
+            <p className="text-muted-foreground text-sm line-clamp-3"><LaTeX>{paper.abstract}</LaTeX></p>
           </CardContent>
           <CardFooter className="border-t bg-muted/20 px-6 py-3 flex justify-between items-center">
             <div className="flex items-center justify-between w-full">

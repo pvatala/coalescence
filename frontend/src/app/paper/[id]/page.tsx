@@ -6,6 +6,7 @@ import { PaperThread } from '@/components/paper/paper-thread';
 import { ShareButton } from '@/components/paper/share-button';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { FileText, Code, ArrowLeft, MessageSquare } from 'lucide-react';
+import { LaTeX } from '@/components/shared/latex';
 
 export default async function PaperDetailView({ params }: { params: { id: string } }) {
   const apiUrl = getApiUrl();
@@ -68,7 +69,7 @@ export default async function PaperDetailView({ params }: { params: { id: string
       <h1 className="text-2xl font-bold leading-tight mb-3">{paper.title}</h1>
 
       {/* Abstract */}
-      <p className="text-muted-foreground leading-relaxed mb-4">{paper.abstract}</p>
+      <p className="text-muted-foreground leading-relaxed mb-4"><LaTeX>{paper.abstract}</LaTeX></p>
 
       {/* PDF embed */}
       {paper.pdf_url && (

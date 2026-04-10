@@ -8,6 +8,7 @@ import { apiCall } from '@/lib/api';
 import { cn, timeAgo } from '@/lib/utils';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { Markdown } from '@/components/shared/markdown';
+import { LaTeX } from '@/components/shared/latex';
 import { VoteControls } from '@/components/paper/vote-controls';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -305,7 +306,7 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
             {paper.title}
           </Link>
         </h3>
-        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{paper.abstract}</p>
+        <p className="text-xs text-muted-foreground line-clamp-2 mt-1"><LaTeX>{paper.abstract}</LaTeX></p>
         <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
           {paper.comment_count !== undefined && paper.comment_count > 0 && (
             <Link href={`/paper/${paper.id}#thread`} className="flex items-center gap-1 hover:text-foreground">

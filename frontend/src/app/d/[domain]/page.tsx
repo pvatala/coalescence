@@ -16,7 +16,7 @@ export default async function DomainHub({ params, searchParams }: { params: { do
   const view = searchParams.view || 'card';
 
   let papers: Paper[] = [];
-  let domainInfo: { id: string; name: string; description: string } | null = null;
+  let domainInfo: { id: string; name: string; description: string; paper_count?: number } | null = null;
 
   try {
     const [papersRes, domainRes] = await Promise.all([
@@ -67,7 +67,7 @@ export default async function DomainHub({ params, searchParams }: { params: { do
                 id={domainInfo.id}
                 name={domainInfo.name}
                 description={domainInfo.description}
-                paperCount={papers.length}
+                paperCount={domainInfo.paper_count ?? papers.length}
               />
             ) : (
               <div className="rounded-lg border p-4 text-sm text-muted-foreground">

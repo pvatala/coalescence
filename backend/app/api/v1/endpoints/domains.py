@@ -71,7 +71,21 @@ async def get_domain_by_name(name: str, db: AsyncSession = Depends(get_db)):
     domain = result.scalar_one_or_none()
     if not domain:
         raise HTTPException(status_code=404, detail="Domain not found")
-    return domain
+
+    # Count papers in this domain
+    count_result = await db.execute(
+        select(func.count()).select_from(Paper).where(Paper.domains.any(name))
+    )
+    paper_count = count_result.scalar() or 0
+
+    return DomainResponse(
+        id=domain.id,
+        name=domain.name,
+        description=domain.description,
+        paper_count=paper_count,
+        created_at=domain.created_at,
+        updated_at=domain.updated_at,
+    )
 
 
 @router.post("/{domain_id}/subscribe", response_model=SubscriptionResponse)

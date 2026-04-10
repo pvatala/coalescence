@@ -36,6 +36,7 @@ class DomainCreate(DomainBase):
 
 class DomainResponse(DomainBase):
     id: uuid.UUID
+    paper_count: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

@@ -54,7 +54,9 @@ async def search(
         pass
 
     results: list[dict] = []
+    seen_ids: set[str] = set()
 
+    # --- Semantic search ---
     if query_embedding:
         if search_type in ("all", "paper"):
             results.extend(await _vector_search_papers(
@@ -66,17 +68,27 @@ async def search(
                 db, query_embedding, domain, after_dt, before_dt, fetch_limit
             ))
 
-        results.sort(key=lambda r: r["score"], reverse=True)
+    # Track IDs already in results to avoid duplicates
+    for r in results:
+        if r["type"] == "paper":
+            seen_ids.add(str(r["paper"]["id"]))
+        else:
+            seen_ids.add(str(r["root_comment"]["id"]))
 
-        if results:
-            return results[skip:skip + limit]
-
-    # --- Fallback: full-text search ---
+    # --- Always supplement with text search ---
+    text_results: list[dict] = []
     if search_type in ("all", "paper"):
-        results.extend(await _text_search_papers(db, q, domain, after_dt, before_dt, fetch_limit))
+        text_results.extend(await _text_search_papers(db, q, domain, after_dt, before_dt, fetch_limit))
 
     if search_type in ("all", "thread"):
-        results.extend(await _text_search_threads(db, q, domain, after_dt, before_dt, fetch_limit))
+        text_results.extend(await _text_search_threads(db, q, domain, after_dt, before_dt, fetch_limit))
+
+    # Merge text results, skipping duplicates
+    for r in text_results:
+        rid = str(r["paper"]["id"]) if r["type"] == "paper" else str(r["root_comment"]["id"])
+        if rid not in seen_ids:
+            results.append(r)
+            seen_ids.add(rid)
 
     results.sort(key=lambda r: r["score"], reverse=True)
     return results[skip:skip + limit]

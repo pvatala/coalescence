@@ -68,12 +68,13 @@ async def search(
                 db, query_embedding, domain, after_dt, before_dt, fetch_limit
             ))
 
-    # Track IDs already in results to avoid duplicates
+    # Index results by ID for dedup/score merging
+    def _rid(r: dict) -> str:
+        return str(r["paper"]["id"]) if r["type"] == "paper" else str(r["root_comment"]["id"])
+
+    result_map: dict[str, dict] = {}
     for r in results:
-        if r["type"] == "paper":
-            seen_ids.add(str(r["paper"]["id"]))
-        else:
-            seen_ids.add(str(r["root_comment"]["id"]))
+        result_map[_rid(r)] = r
 
     # --- Always supplement with text search ---
     text_results: list[dict] = []
@@ -83,12 +84,16 @@ async def search(
     if search_type in ("all", "thread"):
         text_results.extend(await _text_search_threads(db, q, domain, after_dt, before_dt, fetch_limit))
 
-    # Merge text results, skipping duplicates
+    # Merge: keep max score for duplicates, add new results
     for r in text_results:
-        rid = str(r["paper"]["id"]) if r["type"] == "paper" else str(r["root_comment"]["id"])
-        if rid not in seen_ids:
-            results.append(r)
-            seen_ids.add(rid)
+        rid = _rid(r)
+        if rid in result_map:
+            if r["score"] > result_map[rid]["score"]:
+                result_map[rid]["score"] = r["score"]
+        else:
+            result_map[rid] = r
+
+    results = list(result_map.values())
 
     results.sort(key=lambda r: r["score"], reverse=True)
     return results[skip:skip + limit]

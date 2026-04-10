@@ -1,12 +1,11 @@
 """
-Consensus Quality Map panel.
+Consensus Quality panel.
 
-Scatter plot showing agreement vs. reviewer diversity per paper,
-revealing whether democratic consensus is robust or fragile.
+Per-paper review confidence: how many distinct reviewer perspectives
+evaluated it, how much they agree, and what that means.
 """
 
 from __future__ import annotations
-
 
 from coalescence.dashboard.registry import panel
 
@@ -21,7 +20,6 @@ _COLORS = {
     "AI for Science": "#06b6d4",
     "ML-Research": "#6366f1",
 }
-_DEFAULT_COLOR = "#94a3b8"
 
 
 def _sign(x: float) -> int:
@@ -40,10 +38,13 @@ def _variance(vals: list[float]) -> float:
     return sum((v - mean) ** 2 for v in vals) / n
 
 
-def _domain_color(domain: str) -> str:
-    # Strip "d/" prefix if present
+def _domain_tag(domain: str) -> str:
     key = domain[2:] if domain.startswith("d/") else domain
-    return _COLORS.get(key, _DEFAULT_COLOR)
+    color = _COLORS.get(key, "#6b7280")
+    return (
+        f'<span class="domain-tag" style="background:{color}15;color:{color};'
+        f'border:1px solid {color}40">{key}</span>'
+    )
 
 
 def _reviewer_types(actor_id: str, ds) -> set[str]:
@@ -51,18 +52,28 @@ def _reviewer_types(actor_id: str, ds) -> set[str]:
     if actor is None:
         return set()
     types: set[str] = {actor.actor_type}
-    # Parse role-interest-persona pattern
     parts = actor.name.rsplit("-", 2)
     if len(parts) == 3:
-        role, _interest, persona = parts
-        types.add(f"role:{role}")
-        types.add(f"persona:{persona}")
+        types.add(f"role:{parts[0]}")
+        types.add(f"persona:{parts[2]}")
     return types
 
 
-@panel(title="Consensus Quality", order=4)
+def _confidence_label(diversity: float, agreement: float) -> tuple[str, str]:
+    """Return (label, color) based on diversity/agreement quadrant."""
+    high_div = diversity > 0.5
+    high_agr = agreement > 0.5
+    if high_div and high_agr:
+        return "Robust", "#4ade80"
+    if not high_div and high_agr:
+        return "Narrow", "#f59e0b"
+    if high_div and not high_agr:
+        return "Debated", "#60a5fa"
+    return "Weak", "#f87171"
+
+
+@panel(title="Review Confidence", order=4)
 def consensus_quality(ds) -> str:
-    # Collect per-paper signals and reviewer types
     paper_signals: dict[str, list[float]] = {}
     paper_reviewer_types: dict[str, set[str]] = {}
 
@@ -71,13 +82,11 @@ def consensus_quality(ds) -> str:
         signals: list[float] = []
         rtypes: set[str] = set()
 
-        # Votes on the paper
         for vote in ds.votes.for_target(pid):
             if vote.target_type == "PAPER":
                 signals.append(float(vote.vote_value))
                 rtypes |= _reviewer_types(vote.voter_id, ds)
 
-        # Root comments
         for comment in ds.comments.roots_for(pid):
             signals.append(float(_sign(comment.net_score)))
             rtypes |= _reviewer_types(comment.author_id, ds)
@@ -85,101 +94,118 @@ def consensus_quality(ds) -> str:
         paper_signals[pid] = signals
         paper_reviewer_types[pid] = rtypes
 
-    # Filter papers with >= 2 signals
     valid_ids = [pid for pid, sigs in paper_signals.items() if len(sigs) >= 2]
 
     if not valid_ids:
-        return "<p>No papers with enough reviews for consensus analysis.</p>"
+        return "<p>No papers with enough reviews for confidence analysis.</p>"
 
-    # Compute diversity and agreement per paper
     max_diversity = max(len(paper_reviewer_types[pid]) for pid in valid_ids) or 1
 
-    scores: dict[str, tuple[float, float]] = {}  # pid -> (diversity, agreement)
+    # Compute per-paper metrics
+    paper_data = []
     for pid in valid_ids:
         diversity = len(paper_reviewer_types[pid]) / max_diversity
-        agreement = 1.0 - _variance(paper_signals[pid])
-        # Clamp agreement to [0, 1]
-        agreement = max(0.0, min(1.0, agreement))
-        scores[pid] = (diversity, agreement)
+        agreement = max(0.0, min(1.0, 1.0 - _variance(paper_signals[pid])))
+        n_reviewers = len(paper_signals[pid])
+        label, color = _confidence_label(diversity, agreement)
+        paper_data.append((pid, diversity, agreement, n_reviewers, label, color))
 
-    # Quadrant counts (diversity > 0.5 = high, agreement > 0.5 = high)
-    robust = echo = debate = under = 0
-    for div, agr in scores.values():
-        high_div = div > 0.5
-        high_agr = agr > 0.5
-        if high_div and high_agr:
-            robust += 1
-        elif not high_div and high_agr:
-            echo += 1
-        elif high_div and not high_agr:
-            debate += 1
-        else:
-            under += 1
+    # Sort by confidence: robust first, then by agreement descending
+    priority = {"Robust": 0, "Narrow": 1, "Debated": 2, "Weak": 3}
+    paper_data.sort(key=lambda x: (priority.get(x[4], 9), -x[2]))
 
-    # Build dots
-    dots = []
     paper_by_id = {p.id: p for p in ds.papers}
-    for pid in valid_ids:
+
+    about = (
+        '<p class="panel-about">'
+        "How trustworthy is each paper's evaluation? "
+        "<strong>Robust</strong>: diverse reviewers who agree. "
+        "<strong>Narrow</strong>: reviewers agree but lack diversity (echo chamber risk). "
+        "<strong>Debated</strong>: diverse reviewers who disagree (genuine scientific uncertainty). "
+        "<strong>Weak</strong>: few reviewers who disagree."
+        "</p>"
+    )
+
+    # Table
+    header = (
+        "<th>Paper</th><th>Domain</th>"
+        "<th>Reviewers</th><th>Diversity</th><th>Agreement</th><th>Confidence</th>"
+    )
+
+    rows = []
+    for pid, div, agr, n_rev, label, color in paper_data[:20]:
         paper = paper_by_id.get(pid)
-        title = paper.title if paper else pid
+        title = (
+            (paper.title[:55] + "...")
+            if paper and len(paper.title) > 55
+            else (paper.title if paper else pid)
+        )
         domain = paper.domain if paper else ""
-        color = _domain_color(domain)
-        div, agr = scores[pid]
-        x = round(div * 90 + 5, 1)  # 5%–95% range
-        y = round(agr * 90 + 5, 1)
-        dots.append(
-            f'<span class="scatter-dot" style="'
-            f"position:absolute;left:{x}%;bottom:{y}%;width:10px;height:10px;"
-            f"border-radius:50%;background:{color};transform:translate(-50%,50%);"
-            f'cursor:pointer" title="{title}"></span>'
+
+        # Diversity bar
+        div_pct = div * 100
+        div_cell = (
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<div style="width:50px;height:6px;background:#334155;border-radius:3px">'
+            f'<div style="width:{div_pct:.0f}%;height:100%;background:#6366f1;border-radius:3px"></div>'
+            f"</div>"
+            f"<span>{div:.0%}</span>"
+            f"</div>"
         )
 
-    # Crosshair lines
-    crosshair = (
-        # vertical at 50%
-        '<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#334155"></div>'
-        # horizontal at 50%
-        '<div style="position:absolute;bottom:50%;left:0;right:0;height:1px;background:#334155"></div>'
-    )
+        # Agreement bar
+        agr_pct = agr * 100
+        agr_color = "#4ade80" if agr > 0.7 else "#f59e0b" if agr > 0.4 else "#f87171"
+        agr_cell = (
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<div style="width:50px;height:6px;background:#334155;border-radius:3px">'
+            f'<div style="width:{agr_pct:.0f}%;height:100%;background:{agr_color};border-radius:3px"></div>'
+            f"</div>"
+            f"<span>{agr:.0%}</span>"
+            f"</div>"
+        )
 
-    # Quadrant labels
-    label_style_base = (
-        "position:absolute;font-size:11px;color:#64748b;pointer-events:none"
-    )
-    quadrant_labels = (
-        f'<span style="{label_style_base};top:6px;right:8px">Robust consensus</span>'
-        f'<span style="{label_style_base};top:6px;left:8px">Echo chamber</span>'
-        f'<span style="{label_style_base};bottom:6px;right:8px">Genuine debate</span>'
-        f'<span style="{label_style_base};bottom:6px;left:8px">Under-reviewed</span>'
-    )
+        conf_badge = (
+            f'<span style="background:{color}20;color:{color};padding:2px 8px;'
+            f'border-radius:10px;font-size:11px;font-weight:600">{label}</span>'
+        )
 
-    # Axis labels
-    x_label = (
-        '<div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:6px">'
-        "Reviewer Diversity →</div>"
-    )
-    y_label = (
-        '<div style="position:absolute;left:-28px;top:50%;transform:translateY(-50%) rotate(-90deg);'
-        'font-size:12px;color:#94a3b8;white-space:nowrap">Agreement →</div>'
-    )
+        rows.append(
+            f"<tr>"
+            f'<td class="title-cell">{title}</td>'
+            f"<td>{_domain_tag(domain)}</td>"
+            f'<td class="num">{n_rev}</td>'
+            f"<td>{div_cell}</td>"
+            f"<td>{agr_cell}</td>"
+            f"<td>{conf_badge}</td>"
+            f"</tr>"
+        )
 
-    plot_html = (
-        '<div class="scatter-plot" style="'
-        "position:relative;width:100%;max-width:600px;height:300px;"
-        "background:#1e293b;border-radius:12px;border:1px solid #334155"
-        '">'
-        + crosshair
-        + quadrant_labels
-        + y_label
-        + "".join(dots)
-        + "</div>"
-        + x_label
-    )
-
+    # Summary counts
+    counts = {}
+    for _, _, _, _, label, _ in paper_data:
+        counts[label] = counts.get(label, 0) + 1
+    summary_parts = []
+    for lbl, clr in [
+        ("Robust", "#4ade80"),
+        ("Narrow", "#f59e0b"),
+        ("Debated", "#60a5fa"),
+        ("Weak", "#f87171"),
+    ]:
+        n = counts.get(lbl, 0)
+        if n:
+            summary_parts.append(f'<span style="color:{clr}">{n} {lbl.lower()}</span>')
     summary = (
-        f'<p style="font-size:13px;color:#94a3b8;margin-top:8px">'
-        f"{robust} robust · {echo} echo chamber · {debate} genuine debate · {under} under-reviewed"
+        f'<p style="font-size:12px;color:#94a3b8;margin-top:8px">'
+        f"{' · '.join(summary_parts)} out of {len(paper_data)} reviewed papers"
         f"</p>"
     )
 
-    return plot_html + summary
+    return (
+        about
+        + "<table>"
+        + f"<thead><tr>{header}</tr></thead>"
+        + f"<tbody>{''.join(rows)}</tbody>"
+        + "</table>"
+        + summary
+    )

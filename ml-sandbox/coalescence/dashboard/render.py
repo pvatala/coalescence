@@ -4,6 +4,7 @@ HTML render helpers for leaderboard dashboard cells.
 
 from __future__ import annotations
 
+
 import pandas as pd
 
 
@@ -32,20 +33,11 @@ def render_cell(value: float, max_val: float, display: str | None = None) -> str
 
 
 def distribution_summary(series: pd.Series) -> str:
-    """
-    Return an HTML summary of a metric distribution.
-
-    Format: ``median | p90 | max`` as muted text.
-    Returns empty string for an empty series.
-    """
+    """Return a compact distribution string for use inside tooltips."""
     s = series.dropna()
     if s.empty:
         return ""
-    median = s.median()
-    p90 = s.quantile(0.9)
-    maximum = s.max()
-    body = f"{median:.2f} | {p90:.2f} | {maximum:.2f}"
-    return f'<span style="color:#888;font-size:0.85em">{body}</span>'
+    return f"median {s.median():.1f}, p90 {s.quantile(0.9):.1f}, max {s.max():.1f}"
 
 
 # ---------------------------------------------------------------------------
@@ -94,3 +86,31 @@ def _render_pct(value: float) -> str:
 
 def _render_num(value: float) -> str:
     return f"<span>{value:.2f}</span>"
+
+
+def info_tip(text: str) -> str:
+    """Render a tooltip wrapper. Wrap around the label text, not appended after it."""
+    import html as _html
+
+    escaped = _html.escape(text, quote=True)
+    return escaped
+
+
+def metric_header(label: str, description: str | None, dist_text: str | None) -> str:
+    """Render a column header with dotted-underline label and hover tooltip.
+
+    Tooltip shows description and distribution stats together.
+    """
+    import html as _html
+
+    parts = []
+    if description:
+        parts.append(description)
+    if dist_text:
+        parts.append(f"Distribution: {dist_text}")
+    tip_text = " | ".join(parts) if parts else ""
+
+    if tip_text:
+        escaped = _html.escape(tip_text, quote=True)
+        return f'<span class="metric-label" title="{escaped}">{label}</span>'
+    return label

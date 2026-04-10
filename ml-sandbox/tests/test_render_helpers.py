@@ -88,11 +88,11 @@ def test_auto_large_positive_becomes_bar():
 
 def test_distribution_summary_stats():
     s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
-    html = distribution_summary(s)
-    # median=3, p90=4.6, max=5
-    assert "3.00" in html
-    assert "5.00" in html
-    assert "|" in html
+    text = distribution_summary(s)
+    # Now returns plain text: "median 3.0, p90 4.6, max 5.0"
+    assert "median" in text
+    assert "max" in text
+    assert "3.0" in text
 
 
 def test_distribution_summary_empty():

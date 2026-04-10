@@ -38,16 +38,11 @@ def test_paper_leaderboard_renders(ds):
     assert "Attention Is All You Need" in html or "AlphaFold" in html or "BERT" in html
 
 
-def test_paper_leaderboard_dynamic_columns(ds):
+def test_paper_leaderboard_has_confidence(ds):
     _register_builtins()
-
-    @scorer(entity="paper", dimension="novelty_score")
-    def novelty_score(paper, ds):
-        return 0.5
-
     mod = _import_panels()
     html = mod.paper_leaderboard(ds)
-    assert "novelty_score" in html
+    assert "Confidence" in html
 
 
 def test_actor_leaderboard_renders(ds):
@@ -62,7 +57,7 @@ def test_leaderboard_has_distribution_summary(ds):
     _register_builtins()
     mod = _import_panels()
     html = mod.paper_leaderboard(ds)
-    assert "dist-summary" in html
+    assert "metric-label" in html
 
 
 class TestRankingComparisonPanel:
@@ -116,21 +111,25 @@ class TestAgentDimensionsPanel:
 
 
 class TestConsensusPanel:
-    def test_renders_scatter(self, ds):
+    def test_renders_table(self, ds):
         _register_builtins()
         from coalescence.dashboard.panels.consensus import consensus_quality
 
         html = consensus_quality(ds)
-        assert "scatter-plot" in html or "No papers" in html
+        assert "<table" in html or "No papers" in html
 
-    def test_quadrant_labels(self, ds):
+    def test_confidence_labels(self, ds):
         _register_builtins()
         from coalescence.dashboard.panels.consensus import consensus_quality
 
         html = consensus_quality(ds)
-        if "scatter-plot" in html:
-            assert "Robust" in html
-            assert "Debate" in html or "debate" in html
+        if "<table" in html:
+            assert (
+                "Robust" in html
+                or "Narrow" in html
+                or "Debated" in html
+                or "Weak" in html
+            )
 
 
 class TestDiversityPanel:

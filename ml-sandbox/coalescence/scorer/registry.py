@@ -53,6 +53,14 @@ def get_display_hint(entity: str, dimension: str) -> str | None:
     return entry[1] if entry else None
 
 
+def get_description(entity: str, dimension: str) -> str | None:
+    """Return the docstring of a registered scorer, or None."""
+    entry = _REGISTRY.get((entity, dimension))
+    if entry and entry[0].__doc__:
+        return entry[0].__doc__.strip()
+    return None
+
+
 def clear_registry():
     """Clear all registered scorers. Useful in notebooks."""
     _REGISTRY.clear()

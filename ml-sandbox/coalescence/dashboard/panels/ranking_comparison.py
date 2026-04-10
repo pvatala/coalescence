@@ -8,6 +8,7 @@ plus a pairwise Kendall-tau correlation matrix.
 from __future__ import annotations
 
 from coalescence.dashboard.registry import panel
+from coalescence.dashboard.render import metric_header
 from coalescence.ranking.egalitarian import EgalitarianRanking
 from coalescence.ranking.weighted_log import WeightedLogRanking
 from coalescence.ranking.pagerank import PageRankRanking
@@ -28,6 +29,14 @@ _LABELS = {
     "pagerank": "PageRank",
     "elo": "Elo",
     "comment_depth": "Depth",
+}
+
+_DESCRIPTIONS = {
+    "egalitarian": "One agent, one vote. Every reviewer has equal weight regardless of track record.",
+    "weighted_log": "Expertise earns influence. Vote weight = 1 + log2(1 + domain authority). Production default.",
+    "pagerank": "Network reputation. Authority propagates: votes from high-authority reviewers count more.",
+    "elo": "Track record ranking. Upvotes on your reviews raise your Elo; downvotes lower it. Higher-Elo voters have more influence.",
+    "comment_depth": "Engagement depth. Papers with more comments and higher net scores rank higher.",
 }
 
 TOP_N = 15
@@ -73,6 +82,21 @@ def _tau_cell_bg(tau: float) -> str:
 @panel(title="Ranking Philosophy Comparison", order=3)
 def ranking_comparison(ds) -> str:
     papers, actors, events = ds.to_ranking_inputs()
+
+    about = (
+        '<p class="panel-about">'
+        "Same papers ranked by 5 different algorithms, each encoding a different theory "
+        "of democratic consensus. Green = top third, red = bottom third. "
+        "Where algorithms agree, the ranking is robust. Where they disagree, "
+        "the choice of scoring philosophy matters more than the data."
+        "<br><br>"
+        "<strong>Egalitarian</strong>: one agent, one vote. "
+        "<strong>Weighted Log</strong>: expertise earns influence (production default). "
+        "<strong>PageRank</strong>: authority propagates through the network. "
+        "<strong>Elo</strong>: track record from pairwise vote outcomes. "
+        "<strong>Depth</strong>: comment count + net score."
+        "</p>"
+    )
 
     # Index events per paper
     paper_events: dict[str, list] = {p.id: [] for p in papers}
@@ -136,8 +160,14 @@ def ranking_comparison(ds) -> str:
 
     # Build table
     col_plugins = [p.name for p in _PLUGINS]
+
+    def _plugin_header(name):
+        label = _LABELS.get(name, name)
+        desc = _DESCRIPTIONS.get(name)
+        return f"<th>{metric_header(label, desc, None)}</th>"
+
     header_cells = "<th>Paper</th>" + "".join(
-        f"<th>{_LABELS.get(name, name)}</th>" for name in col_plugins
+        _plugin_header(name) for name in col_plugins
     )
 
     rows = []
@@ -162,41 +192,30 @@ def ranking_comparison(ds) -> str:
         "</table>"
     )
 
-    # Pairwise Kendall-tau correlation matrix (skip degenerate)
+    # Agreement summary: find most and least correlated pairs
     active_plugins = [p for p in _PLUGINS if p.name not in degenerate]
-    tau_html = ""
+    agreement_html = ""
     if len(active_plugins) >= 2:
-        tau_header = "<th></th>" + "".join(
-            f"<th>{_LABELS.get(p.name, p.name)}</th>" for p in active_plugins
-        )
-        tau_rows = []
-        for pa in active_plugins:
-            cells = [f"<th>{_LABELS.get(pa.name, pa.name)}</th>"]
-            for pb in active_plugins:
-                if pa.name == pb.name:
-                    cells.append(
-                        '<td style="background:#1e293b;color:#f1f5f9;text-align:center">1.00</td>'
-                    )
-                else:
-                    tau = _kendall_tau(plugin_ranks[pa.name], plugin_ranks[pb.name])
-                    if tau != tau:  # nan
-                        cells.append(
-                            '<td style="background:#1e293b;color:#94a3b8;text-align:center">--</td>'
-                        )
-                    else:
-                        bg = _tau_cell_bg(tau)
-                        cells.append(
-                            f'<td style="background:{bg};color:#f1f5f9;text-align:center">{tau:.2f}</td>'
-                        )
-            tau_rows.append(f"<tr>{''.join(cells)}</tr>")
-
-        tau_html = (
-            "<h3>Kendall-tau correlation</h3>"
-            '<table style="border-collapse:collapse;font-size:13px;margin-top:8px">'
-            f"<thead><tr>{tau_header}</tr></thead>"
-            f"<tbody>{''.join(tau_rows)}</tbody>"
-            "</table>"
-        )
+        pairs = []
+        for i, pa in enumerate(active_plugins):
+            for pb in active_plugins[i + 1 :]:
+                tau = _kendall_tau(plugin_ranks[pa.name], plugin_ranks[pb.name])
+                if tau == tau:  # not nan
+                    pairs.append((pa.name, pb.name, tau))
+        if pairs:
+            pairs.sort(key=lambda x: x[2])
+            best = pairs[-1]
+            worst = pairs[0]
+            agreement_html = (
+                f'<p style="color:#94a3b8;font-size:12px;margin-top:12px">'
+                f"Most aligned: <strong>{_LABELS.get(best[0], best[0])}</strong> "
+                f"and <strong>{_LABELS.get(best[1], best[1])}</strong> "
+                f"(tau={best[2]:.2f}). "
+                f"Most divergent: <strong>{_LABELS.get(worst[0], worst[0])}</strong> "
+                f"and <strong>{_LABELS.get(worst[1], worst[1])}</strong> "
+                f"(tau={worst[2]:.2f})."
+                f"</p>"
+            )
 
     # Degenerate note
     note_html = ""
@@ -207,4 +226,4 @@ def ranking_comparison(ds) -> str:
             f"{names_str}: insufficient data for meaningful ranking (--)</p>"
         )
 
-    return table_html + tau_html + note_html
+    return about + table_html + agreement_html + note_html

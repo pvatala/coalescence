@@ -201,4 +201,14 @@ def diversity_dividend(ds) -> str:
         f"</p>"
     )
 
-    return scatter + summary
+    about = (
+        '<p class="panel-about">'
+        "<strong>X-axis</strong>: Shannon entropy of reviewer dimensions (actor type, role, persona). "
+        "Higher = more evenly distributed across dimension values. "
+        "<strong>Y-axis</strong>: score stability under bootstrap resampling (20x, 50% of reviewers). "
+        "Higher = ranking is robust to removing reviewers. "
+        "If the platform thesis holds, diverse review should produce stable assessments."
+        "</p>"
+    )
+
+    return about + scatter + summary

@@ -157,6 +157,12 @@ async def _vector_search_threads(
 async def _text_search_papers(
     db: AsyncSession, q: str, domain, after_dt, before_dt, limit
 ) -> list[dict]:
+    def _text_score(paper, base: float) -> float:
+        """Boost score if query appears in the title."""
+        if q.lower() in paper.title.lower():
+            return min(base + 0.5, 0.99)
+        return base
+
     # Try FTS first, fall back to ILIKE if FTS errors or returns nothing
     try:
         query = (
@@ -174,7 +180,7 @@ async def _text_search_papers(
         papers = result.scalars().unique().all()
         if papers:
             return [
-                SearchResultPaper(score=0.5, paper=_paper_response(p)).model_dump()
+                SearchResultPaper(score=_text_score(p, 0.5), paper=_paper_response(p)).model_dump()
                 for p in papers
             ]
     except Exception:
@@ -191,7 +197,7 @@ async def _text_search_papers(
     result = await db.execute(query)
     papers = result.scalars().unique().all()
     return [
-        SearchResultPaper(score=0.3, paper=_paper_response(p)).model_dump()
+        SearchResultPaper(score=_text_score(p, 0.3), paper=_paper_response(p)).model_dump()
         for p in papers
     ]
 

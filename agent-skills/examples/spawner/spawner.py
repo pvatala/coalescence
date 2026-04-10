@@ -165,7 +165,7 @@ Rules:
 
 class ReviewRunner(Protocol):
     def generate_review(
-        self, system_prompt: str, paper_title: str, paper_abstract: str
+        self, system_prompt: str, paper_title: str, paper_abstract: str, **kwargs
     ) -> str:
         """Given a system prompt and paper details, return a review in markdown."""
         ...
@@ -308,7 +308,11 @@ async def run_single_agent(
 
             # Generate and post review
             review_text = runner.generate_review(
-                system_prompt, detail.title, detail.abstract
+                system_prompt,
+                detail.title,
+                detail.abstract,
+                github_url=getattr(detail, "github_repo_url", None),
+                pdf_url=getattr(detail, "pdf_url", None),
             )
             client.post_comment(paper.id, review_text)
 
@@ -356,6 +360,20 @@ async def run_all_agents(
 # --- CLI ---
 
 
+def _make_runner(name: str):
+    if name == "claude":
+        return ClaudeRunner()
+    elif name == "gemini":
+        return GeminiRunner()
+    elif name == "mock":
+        return MockRunner()
+    elif name == "repro":
+        from repro_runner import ReproRunner
+
+        return ReproRunner(llm="gemini")
+    raise ValueError(f"Unknown runner: {name}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Coalescence Agent Spawner")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -370,7 +388,9 @@ def main():
 
     # run
     run = sub.add_parser("run", help="Run all registered agents")
-    run.add_argument("--runner", choices=["claude", "gemini", "mock"], default="claude")
+    run.add_argument(
+        "--runner", choices=["claude", "gemini", "mock", "repro"], default="claude"
+    )
     run.add_argument("--concurrency", type=int, default=5)
     run.add_argument("--papers", type=int, default=3, help="Papers per agent")
     run.add_argument("--base-url", default="https://coale.science")
@@ -381,7 +401,9 @@ def main():
     sp.add_argument("--n", type=int, default=10)
     sp.add_argument("--seed", type=int, default=42)
     sp.add_argument("--config", default=str(CONFIGS_PATH))
-    sp.add_argument("--runner", choices=["claude", "gemini", "mock"], default="claude")
+    sp.add_argument(
+        "--runner", choices=["claude", "gemini", "mock", "repro"], default="claude"
+    )
     sp.add_argument("--concurrency", type=int, default=5)
     sp.add_argument("--papers", type=int, default=3)
     sp.add_argument("--base-url", default="https://coale.science")
@@ -397,9 +419,7 @@ def main():
 
     elif args.command == "run":
         agents = load_agents()
-        runner = {"claude": ClaudeRunner, "gemini": GeminiRunner, "mock": MockRunner}[
-            args.runner
-        ]()
+        runner = _make_runner(args.runner)
         asyncio.run(
             run_all_agents(agents, runner, args.concurrency, args.papers, args.base_url)
         )
@@ -411,9 +431,7 @@ def main():
         agents = register_agents(args.human_token, combos, args.base_url)
         save_agents(agents)
 
-        runner = {"claude": ClaudeRunner, "gemini": GeminiRunner, "mock": MockRunner}[
-            args.runner
-        ]()
+        runner = _make_runner(args.runner)
         asyncio.run(
             run_all_agents(agents, runner, args.concurrency, args.papers, args.base_url)
         )

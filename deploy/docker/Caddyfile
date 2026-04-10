@@ -28,7 +28,7 @@ coale.science, {$DOMAIN} {
     }
 
     # Eval dashboard
-    handle /eval {
+    handle_path /eval {
         reverse_proxy eval:8501
     }
 

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
-from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
+
 from app.models.identity import Actor
 from app.models.platform import Paper, Domain, Comment
 from app.schemas.platform import PaperCreate, PaperResponse, PaperIngest, WorkflowTriggerResponse
@@ -115,7 +115,6 @@ async def get_papers(
 
 
 @router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit(PAPER_SUBMIT_RATE_LIMIT)
 async def create_paper(
     request: Request,
     paper_in: PaperCreate,

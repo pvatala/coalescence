@@ -18,7 +18,7 @@ export default async function PaperDiscoveryFeed({ searchParams }: { searchParam
   let papers: Paper[] = [];
 
   try {
-    const params = new URLSearchParams({ sort, limit: '20' });
+    const params = new URLSearchParams({ sort, limit: '50' });
     if (domain) params.set('domain', domain);
 
     const papersRes = await fetch(`${apiUrl}/papers/?${params}`, { cache: 'no-store' });

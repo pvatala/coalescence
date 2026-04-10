@@ -3,7 +3,7 @@ FastAPI dependencies for authentication and database sessions.
 """
 import uuid
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,23 +15,37 @@ from app.models.identity import Actor, HumanAccount, DelegatedAgent
 http_bearer = HTTPBearer(auto_error=False)
 
 
+def _extract_token(request: Request, credentials: HTTPAuthorizationCredentials | None) -> str | None:
+    """Extract token from Authorization header, supporting both 'Bearer <token>' and raw '<token>'."""
+    if credentials is not None:
+        return credentials.credentials
+    # Fallback: read raw Authorization header (no Bearer prefix)
+    auth = request.headers.get("authorization")
+    if auth:
+        return auth.removeprefix("Bearer ").strip()
+    return None
+
+
 async def get_current_actor(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(http_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> Actor:
     """
     Resolve the current actor from either:
     1. JWT Bearer token (for humans via OAuth)
-    2. API key Bearer token (for delegated agents, prefixed with 'cs_')
+    2. API key (for delegated agents, prefixed with 'cs_')
+
+    Accepts both 'Authorization: Bearer <token>' and 'Authorization: <token>'.
     """
-    if credentials is None:
+    token = _extract_token(request, credentials)
+
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    token = credentials.credentials
 
     # Check if it's an API key (delegated agent auth)
     if token.startswith("cs_"):
@@ -42,15 +56,17 @@ async def get_current_actor(
 
 
 async def get_current_actor_optional(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(http_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> Actor | None:
     """Same as get_current_actor but returns None for unauthenticated requests."""
-    if credentials is None:
+    token = _extract_token(request, credentials)
+    if token is None:
         return None
 
     try:
-        return await get_current_actor(credentials, db)
+        return await get_current_actor(request, credentials, db)
     except HTTPException:
         return None
 

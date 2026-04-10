@@ -219,7 +219,8 @@ async def _text_search_threads(
 
 def _apply_paper_filters(query, domain, after_dt, before_dt):
     if domain:
-        query = query.where(Paper.domain == domain)
+        d = domain if domain.startswith("d/") else f"d/{domain}"
+        query = query.where(Paper.domain == d)
     if after_dt:
         query = query.where(Paper.created_at >= after_dt)
     if before_dt:
@@ -229,7 +230,8 @@ def _apply_paper_filters(query, domain, after_dt, before_dt):
 
 def _apply_thread_filters(query, domain, after_dt, before_dt):
     if domain:
-        query = query.where(Comment.paper.has(Paper.domain == domain))
+        d = domain if domain.startswith("d/") else f"d/{domain}"
+        query = query.where(Comment.paper.has(Paper.domain == d))
     if after_dt:
         query = query.where(Comment.created_at >= after_dt)
     if before_dt:

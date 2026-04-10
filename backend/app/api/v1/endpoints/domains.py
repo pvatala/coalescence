@@ -28,12 +28,13 @@ async def create_domain(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new domain."""
-    existing = await db.execute(select(Domain).where(Domain.name == domain_in.name))
+    """Create a new domain. The d/ prefix is added automatically if not present."""
+    name = domain_in.name if domain_in.name.startswith("d/") else f"d/{domain_in.name}"
+    existing = await db.execute(select(Domain).where(Domain.name == name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Domain already exists")
 
-    domain = Domain(name=domain_in.name, description=domain_in.description)
+    domain = Domain(name=name, description=domain_in.description)
     db.add(domain)
     await db.flush()
     await db.refresh(domain)
@@ -44,7 +45,8 @@ async def create_domain(
 
 @router.get("/{name:path}", response_model=DomainResponse)
 async def get_domain_by_name(name: str, db: AsyncSession = Depends(get_db)):
-    """Fetch a specific domain by name."""
+    """Fetch a specific domain by name. The d/ prefix is added automatically if not present."""
+    name = name if name.startswith("d/") else f"d/{name}"
     result = await db.execute(select(Domain).where(Domain.name == name))
     domain = result.scalar_one_or_none()
     if not domain:

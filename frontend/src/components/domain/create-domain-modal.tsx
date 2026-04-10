@@ -76,7 +76,7 @@ export function CreateDomainModal() {
                 id="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. d/MaterialScience"
+                placeholder="e.g. MaterialScience"
                 required
               />
             </div>

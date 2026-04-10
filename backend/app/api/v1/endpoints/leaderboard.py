@@ -1,17 +1,20 @@
 """
 Leaderboard endpoints — agent and paper rankings.
+
+Agent leaderboard is computed dynamically by the LeaderboardEngine,
+using live platform data and ground truth from HuggingFace. No static
+caching — results reflect real-time state.
+
+Paper leaderboard uses the static PaperLeaderboardEntry table (placeholder).
 """
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
-from app.models.identity import Actor, DelegatedAgent, HumanAccount
+from app.models.identity import Actor
 from app.models.platform import Paper
 from app.models.leaderboard import (
-    AgentLeaderboardScore,
     PaperLeaderboardEntry as PaperLeaderboardEntryModel,
     LeaderboardMetric,
 )
@@ -21,6 +24,7 @@ from app.schemas.leaderboard import (
     PaperLeaderboardEntry,
     PaperLeaderboardResponse,
 )
+from app.core.leaderboard_engine import engine
 
 router = APIRouter()
 
@@ -35,6 +39,9 @@ async def get_agent_leaderboard(
     """
     Get the agent leaderboard ranked by a specific metric.
 
+    Computed dynamically from live data — new reviews, votes, and papers
+    are reflected immediately.
+
     Metrics:
     - citation: correlation between agent's citation prediction and ground truth
     - acceptance: correlation between agent's acceptance prediction and ground truth
@@ -46,52 +53,35 @@ async def get_agent_leaderboard(
         metric_enum = LeaderboardMetric(metric)
     except ValueError:
         valid = [m.value for m in LeaderboardMetric]
-        raise HTTPException(status_code=400, detail=f"Invalid metric '{metric}'. Must be one of: {valid}")
-
-    # Count total entries for this metric
-    count_result = await db.execute(
-        select(func.count(AgentLeaderboardScore.id))
-        .where(AgentLeaderboardScore.metric == metric_enum)
-    )
-    total = count_result.scalar_one()
-
-    # Fetch scores with agent info, ordered by score descending
-    result = await db.execute(
-        select(AgentLeaderboardScore, Actor.name, Actor.actor_type)
-        .join(Actor, AgentLeaderboardScore.agent_id == Actor.id)
-        .where(AgentLeaderboardScore.metric == metric_enum)
-        .order_by(AgentLeaderboardScore.score.desc())
-        .offset(skip)
-        .limit(limit)
-    )
-    rows = result.all()
-
-    # For delegated agents, fetch owner names
-    agent_ids = [row[0].agent_id for row in rows]
-    owner_map: dict = {}
-    if agent_ids:
-        owner_result = await db.execute(
-            select(DelegatedAgent.id, HumanAccount.name)
-            .join(HumanAccount, DelegatedAgent.owner_id == HumanAccount.id)
-            .where(DelegatedAgent.id.in_(agent_ids))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid metric '{metric}'. Must be one of: {valid}",
         )
-        owner_map = {agent_id: owner_name for agent_id, owner_name in owner_result.all()}
 
-    entries = []
-    for i, (score_row, agent_name, actor_type) in enumerate(rows):
-        entries.append(AgentLeaderboardEntry(
+    # Compute dynamic leaderboard
+    entries, total = await engine.get_agent_leaderboard(
+        metric=metric_enum,
+        db=db,
+        limit=limit,
+        skip=skip,
+    )
+
+    # Convert to response schema
+    response_entries = []
+    for i, entry in enumerate(entries):
+        response_entries.append(AgentLeaderboardEntry(
             rank=skip + i + 1,
-            agent_id=score_row.agent_id,
-            agent_name=agent_name,
-            agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
-            owner_name=owner_map.get(score_row.agent_id),
-            score=score_row.score,
-            num_papers_evaluated=score_row.num_papers_evaluated,
+            agent_id=entry.agent_id,
+            agent_name=entry.agent_name,
+            agent_type=entry.agent_type,
+            owner_name=entry.owner_name,
+            score=entry.score,
+            num_papers_evaluated=entry.num_papers_evaluated,
         ))
 
     return AgentLeaderboardResponse(
         metric=metric,
-        entries=entries,
+        entries=response_entries,
         total=total,
     )
 

@@ -48,7 +48,7 @@ export function RegisterAgentModal() {
         id: data.id,
         name,
         status: "Active",
-        api_key_preview: "cs_••••••••",
+        api_key_preview: data.api_key,
         reputation: 0,
       });
     } catch (err) {

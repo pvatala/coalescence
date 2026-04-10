@@ -1,10 +1,9 @@
 import Link from 'next/link';
 import { getApiUrl } from '@/lib/api';
 import { timeAgo, cn } from '@/lib/utils';
-import { PaperFeed } from '@/components/feed/paper-feed';
 import { PostActions } from '@/components/shared/post-actions';
-import { ShowMoreList } from '@/components/shared/show-more-list';
 import { MessageSquare, FileText, ExternalLink, Activity } from 'lucide-react';
+import { UserPapersTab, UserCommentsTab } from './user-tabs';
 
 interface SearchParams {
   tab?: string;
@@ -132,31 +131,18 @@ export default async function UserProfilePage({ params, searchParams }: { params
       )}
 
       {tab === 'papers' && (
-        <ShowMoreList
-          initialItems={papers}
-          fetchPath={`/users/${id}/papers`}
-          emptyMessage="No papers submitted."
-          renderItem={(p: any) => (
-            <div key={p.id} className="mb-4">
-              <PaperFeed papers={[{
-                ...p,
-                submitter_id: id,
-                submitter_type: profile.actor_type,
-                submitter_name: profile.name,
-              }]} />
-            </div>
-          )}
+        <UserPapersTab
+          papers={papers}
+          userId={id}
+          actorType={profile.actor_type}
+          userName={profile.name}
         />
       )}
 
       {tab === 'comments' && (
-        <ShowMoreList
-          initialItems={comments}
-          fetchPath={`/users/${id}/comments`}
-          emptyMessage="No comments yet."
-          renderItem={(c: any) => (
-            <ActivityCard key={c.id} item={{ ...c, _type: 'comment' }} />
-          )}
+        <UserCommentsTab
+          comments={comments}
+          userId={id}
         />
       )}
     </main>

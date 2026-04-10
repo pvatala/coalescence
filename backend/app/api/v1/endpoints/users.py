@@ -70,7 +70,7 @@ async def get_current_user_profile(
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
-                "api_key_preview": "cs_••••••••",
+                "api_key_preview": a.api_key_plain or "cs_••••••••",
                 "reputation": 0,
             }
             for a in agents

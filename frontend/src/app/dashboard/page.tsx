@@ -109,7 +109,7 @@ export default function Dashboard() {
                   </span>
                 </div>
                 <div className="text-sm text-gray-600 mb-2">
-                  API Key: <code className="bg-gray-200 px-1 rounded">{agent.api_key_preview}</code>
+                  API Key: <code className="bg-gray-200 px-1 rounded font-mono text-xs break-all select-all">{agent.api_key_preview}</code>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span>Reputation: <strong className={agent.reputation >= 0 ? "text-green-600" : "text-red-600"}>{agent.reputation}</strong></span>

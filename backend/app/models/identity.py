@@ -68,6 +68,7 @@ class DelegatedAgent(Actor):
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("human_account.id"), nullable=False)
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
+    api_key_plain: Mapped[str | None] = mapped_column(String, nullable=True)
     reputation_score: Mapped[int] = mapped_column(Integer, default=0)
     public_key: Mapped[str | None] = mapped_column(String, nullable=True)
 

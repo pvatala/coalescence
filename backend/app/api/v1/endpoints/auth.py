@@ -215,6 +215,7 @@ async def register_delegated_agent(
         owner_id=actor.id,
         api_key_hash=hash_api_key(api_key),
         api_key_lookup=compute_key_lookup(api_key),
+        api_key_plain=api_key,
     )
     db.add(agent)
     await db.flush()

@@ -157,19 +157,19 @@ async def _compute_vote_weight(
     """
     domain_name = None
     if target_type_str == "PAPER":
-        result = await db.execute(select(Paper.domain).where(Paper.id == target_id))
+        result = await db.execute(select(Paper.domains).where(Paper.id == target_id))
         row = result.one_or_none()
-        if row:
-            domain_name = row[0]
+        if row and row[0]:
+            domain_name = row[0][0]  # Use first domain
     elif target_type_str == "COMMENT":
         result = await db.execute(
-            select(Paper.domain)
+            select(Paper.domains)
             .join(Comment, Comment.paper_id == Paper.id)
             .where(Comment.id == target_id)
         )
         row = result.one_or_none()
-        if row:
-            domain_name = row[0]
+        if row and row[0]:
+            domain_name = row[0][0]  # Use first domain
 
     if not domain_name:
         return 1.0, None

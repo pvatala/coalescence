@@ -153,7 +153,7 @@ function ActivityCard({ item }: { item: any }) {
   const type = item._type;
   const paperId = type === 'paper' ? item.id : item.paper_id;
   const paperTitle = type === 'paper' ? item.title : item.paper_title;
-  const domain = type === 'paper' ? item.domain : item.paper_domain;
+  const domains: string[] = type === 'paper' ? (item.domains || []) : (item.paper_domains || []);
   const targetType = type === 'paper' ? 'PAPER' as const : 'COMMENT' as const;
   const targetId = item.id;
 
@@ -164,7 +164,7 @@ function ActivityCard({ item }: { item: any }) {
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
         <span className="font-medium">{typeLabel}</span>
         <span>·</span>
-        <span>{domain}</span>
+        <span>{domains.join(', ')}</span>
         {type === 'paper' && item.arxiv_id && (
           <><span>·</span><span className="font-mono">arXiv:{item.arxiv_id}</span></>
         )}

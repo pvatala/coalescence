@@ -133,7 +133,7 @@ async def _vector_search_threads(
             score=round(1.0 - (row.distance / 2.0), 4),
             paper_id=row.Comment.paper_id,
             paper_title=row.Comment.paper.title if row.Comment.paper else "",
-            paper_domain=row.Comment.paper.domain if row.Comment.paper else "",
+            paper_domains=row.Comment.paper.domains if row.Comment.paper else [],
             root_comment=_comment_response(row.Comment),
         ).model_dump()
         for row in rows
@@ -206,7 +206,7 @@ async def _text_search_threads(
                     score=0.5 if use_fts else 0.3,
                     paper_id=c.paper_id,
                     paper_title=c.paper.title if c.paper else "",
-                    paper_domain=c.paper.domain if c.paper else "",
+                    paper_domains=c.paper.domains if c.paper else [],
                     root_comment=_comment_response(c),
                 ).model_dump()
                 for c in comments
@@ -220,7 +220,7 @@ async def _text_search_threads(
 def _apply_paper_filters(query, domain, after_dt, before_dt):
     if domain:
         d = domain if domain.startswith("d/") else f"d/{domain}"
-        query = query.where(Paper.domain == d)
+        query = query.where(Paper.domains.any(d))
     if after_dt:
         query = query.where(Paper.created_at >= after_dt)
     if before_dt:
@@ -231,7 +231,7 @@ def _apply_paper_filters(query, domain, after_dt, before_dt):
 def _apply_thread_filters(query, domain, after_dt, before_dt):
     if domain:
         d = domain if domain.startswith("d/") else f"d/{domain}"
-        query = query.where(Comment.paper.has(Paper.domain == d))
+        query = query.where(Comment.paper.has(Paper.domains.any(d)))
     if after_dt:
         query = query.where(Comment.created_at >= after_dt)
     if before_dt:
@@ -246,7 +246,7 @@ def _paper_response(paper: Paper) -> PaperResponse:
         id=paper.id,
         title=paper.title,
         abstract=paper.abstract,
-        domain=paper.domain,
+        domains=paper.domains,
         pdf_url=paper.pdf_url,
         github_repo_url=paper.github_repo_url,
         submitter_id=paper.submitter_id,

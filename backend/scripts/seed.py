@@ -43,7 +43,7 @@ PAPERS = [
     {
         "title": "Constitutional AI: Harmlessness from AI Feedback",
         "abstract": "We propose Constitutional AI (CAI), a method for training AI systems that are helpful, harmless, and honest, using a set of principles to guide AI behavior without extensive human feedback on harms.",
-        "domain": "d/LLM-Alignment",
+        "domains": ["d/LLM-Alignment"],
         "arxiv_id": "2212.08073",
         "pdf_url": "https://arxiv.org/pdf/2212.08073.pdf",
         "github_repo_url": None,
@@ -52,7 +52,7 @@ PAPERS = [
     {
         "title": "Sleeper Agents: Training Deceptive LLMs that Persist Through Safety Training",
         "abstract": "We find that current behavioral safety training techniques are insufficient to remove deceptive behavior from large language models, even when the deceptive behavior was inserted during pretraining.",
-        "domain": "d/LLM-Alignment",
+        "domains": ["d/LLM-Alignment"],
         "arxiv_id": "2401.05566",
         "pdf_url": "https://arxiv.org/pdf/2401.05566.pdf",
         "github_repo_url": "https://github.com/anthropics/sleeper-agents-paper",
@@ -61,7 +61,7 @@ PAPERS = [
     {
         "title": "Representation Engineering: A Top-Down Approach to AI Transparency",
         "abstract": "We identify and manipulate high-level cognitive representations within neural networks, enabling more precise control over model behavior than traditional fine-tuning approaches.",
-        "domain": "d/LLM-Alignment",
+        "domains": ["d/LLM-Alignment"],
         "arxiv_id": "2310.01405",
         "pdf_url": "https://arxiv.org/pdf/2310.01405.pdf",
         "github_repo_url": "https://github.com/andyzoujm/representation-engineering",
@@ -70,7 +70,7 @@ PAPERS = [
     {
         "title": "Scaling Monosemanticity: Extracting Interpretable Features from Claude 3 Sonnet",
         "abstract": "We apply dictionary learning at scale to extract millions of interpretable features from a production language model, finding features corresponding to a wide range of concepts.",
-        "domain": "d/LLM-Alignment",
+        "domains": ["d/LLM-Alignment"],
         "arxiv_id": "2406.04093",
         "pdf_url": "https://arxiv.org/pdf/2406.04093.pdf",
         "github_repo_url": None,
@@ -80,7 +80,7 @@ PAPERS = [
     {
         "title": "Attention Is All You Need",
         "abstract": "We propose the Transformer, a model architecture based entirely on attention mechanisms, dispensing with recurrence and convolutions. Experiments show these models to be superior in quality while being more parallelizable.",
-        "domain": "d/NLP",
+        "domains": ["d/NLP"],
         "arxiv_id": "1706.03762",
         "pdf_url": "https://arxiv.org/pdf/1706.03762.pdf",
         "github_repo_url": "https://github.com/tensorflow/tensor2tensor",
@@ -89,7 +89,7 @@ PAPERS = [
     {
         "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
         "abstract": "We introduce BERT, designed to pre-train deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers.",
-        "domain": "d/NLP",
+        "domains": ["d/NLP"],
         "arxiv_id": "1810.04805",
         "pdf_url": "https://arxiv.org/pdf/1810.04805.pdf",
         "github_repo_url": "https://github.com/google-research/bert",
@@ -98,7 +98,7 @@ PAPERS = [
     {
         "title": "Language Models are Few-Shot Learners",
         "abstract": "We show that scaling up language models greatly improves task-agnostic, few-shot performance, sometimes even reaching competitiveness with prior state-of-the-art fine-tuning approaches.",
-        "domain": "d/NLP",
+        "domains": ["d/NLP"],
         "arxiv_id": "2005.14165",
         "pdf_url": "https://arxiv.org/pdf/2005.14165.pdf",
         "github_repo_url": None,
@@ -107,7 +107,7 @@ PAPERS = [
     {
         "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
         "abstract": "We combine pre-trained parametric and non-parametric memory for language generation, using a dense passage retriever to condition seq2seq models on retrieved documents.",
-        "domain": "d/NLP",
+        "domains": ["d/NLP"],
         "arxiv_id": "2005.11401",
         "pdf_url": "https://arxiv.org/pdf/2005.11401.pdf",
         "github_repo_url": "https://github.com/facebookresearch/RAG",
@@ -117,7 +117,7 @@ PAPERS = [
     {
         "title": "Crystal Diffusion Variational Autoencoder for Periodic Material Generation",
         "abstract": "We propose CDVAE, a variational autoencoder that generates stable crystal structures by learning to denoise atom types, coordinates, and lattice parameters simultaneously.",
-        "domain": "d/MaterialScience",
+        "domains": ["d/MaterialScience"],
         "arxiv_id": "2110.06197",
         "pdf_url": "https://arxiv.org/pdf/2110.06197.pdf",
         "github_repo_url": "https://github.com/txie-93/cdvae",
@@ -126,7 +126,7 @@ PAPERS = [
     {
         "title": "MatterGen: A Generative Model for Inorganic Materials Design",
         "abstract": "We introduce MatterGen, a diffusion-based generative model that designs novel, stable inorganic materials across the periodic table with desired properties.",
-        "domain": "d/MaterialScience",
+        "domains": ["d/MaterialScience"],
         "arxiv_id": "2312.03687",
         "pdf_url": "https://arxiv.org/pdf/2312.03687.pdf",
         "github_repo_url": None,
@@ -135,7 +135,7 @@ PAPERS = [
     {
         "title": "CHGNet: Pretrained Universal Neural Network Potential for Charge-Informed Atomistic Modelling",
         "abstract": "We present CHGNet, a graph neural network pretrained on the Materials Project trajectory dataset, enabling rapid and accurate prediction of energies, forces, and magnetic moments.",
-        "domain": "d/MaterialScience",
+        "domains": ["d/MaterialScience"],
         "arxiv_id": "2302.14231",
         "pdf_url": "https://arxiv.org/pdf/2302.14231.pdf",
         "github_repo_url": "https://github.com/CederGroupHub/chgnet",
@@ -144,7 +144,7 @@ PAPERS = [
     {
         "title": "Uni-Mol: A Universal 3D Molecular Pretraining Framework",
         "abstract": "We propose Uni-Mol, a universal molecular representation learning framework that directly operates on 3D molecular structures, significantly improving property prediction tasks.",
-        "domain": "d/MaterialScience",
+        "domains": ["d/MaterialScience"],
         "arxiv_id": "2209.05481",
         "pdf_url": "https://arxiv.org/pdf/2209.05481.pdf",
         "github_repo_url": "https://github.com/dptech-corp/Uni-Mol",
@@ -154,7 +154,7 @@ PAPERS = [
     {
         "title": "AlphaFold Protein Structure Database: massively expanding the structural coverage of protein-sequence space",
         "abstract": "We present the AlphaFold DB, providing open access to 200 million protein structure predictions, covering nearly all catalogued proteins known to science.",
-        "domain": "d/Bioinformatics",
+        "domains": ["d/Bioinformatics"],
         "arxiv_id": "2209.15474",
         "pdf_url": "https://arxiv.org/pdf/2209.15474.pdf",
         "github_repo_url": "https://github.com/google-deepmind/alphafold",
@@ -163,7 +163,7 @@ PAPERS = [
     {
         "title": "ESM-2: Language models of protein sequences at the scale of evolution enable accurate structure prediction",
         "abstract": "We train protein language models up to 15B parameters and find that as models scale, information emerges in the representations that enables accurate atomic-resolution structure prediction.",
-        "domain": "d/Bioinformatics",
+        "domains": ["d/Bioinformatics"],
         "arxiv_id": "2207.06616",
         "pdf_url": "https://arxiv.org/pdf/2207.06616.pdf",
         "github_repo_url": "https://github.com/facebookresearch/esm",
@@ -172,7 +172,7 @@ PAPERS = [
     {
         "title": "scGPT: Toward Building a Foundation Model for Single-Cell Multi-omics Using Generative AI",
         "abstract": "We present scGPT, a generative pretrained transformer model for single-cell biology that enables cell type annotation, multi-batch integration, and perturbation response prediction.",
-        "domain": "d/Bioinformatics",
+        "domains": ["d/Bioinformatics"],
         "arxiv_id": "2302.02867",
         "pdf_url": "https://arxiv.org/pdf/2302.02867.pdf",
         "github_repo_url": "https://github.com/bowang-lab/scGPT",
@@ -181,7 +181,7 @@ PAPERS = [
     {
         "title": "GenePT: A Simple But Effective Foundation Model for Genes Using ChatGPT",
         "abstract": "We generate gene embeddings by converting NCBI gene summaries into vector representations using GPT-3.5, demonstrating competitive performance on gene classification and functional prediction tasks.",
-        "domain": "d/Bioinformatics",
+        "domains": ["d/Bioinformatics"],
         "arxiv_id": "2306.15462",
         "pdf_url": "https://arxiv.org/pdf/2306.15462.pdf",
         "github_repo_url": "https://github.com/yiqunchen/GenePT",
@@ -191,7 +191,7 @@ PAPERS = [
     {
         "title": "Quantum Error Correction with Fracton Topological Codes",
         "abstract": "We study fracton topological codes as a framework for quantum error correction, showing that their sub-extensive ground state degeneracy provides natural protection against local errors.",
-        "domain": "d/QuantumComputing",
+        "domains": ["d/QuantumComputing"],
         "arxiv_id": "2108.04187",
         "pdf_url": "https://arxiv.org/pdf/2108.04187.pdf",
         "github_repo_url": None,
@@ -200,7 +200,7 @@ PAPERS = [
     {
         "title": "Quantum Approximate Optimization Algorithm: Performance, Mechanism, and Implementation on Near-Term Devices",
         "abstract": "We study the performance of the Quantum Approximate Optimization Algorithm (QAOA), proving concentration of parameters and providing implementation strategies for near-term quantum hardware.",
-        "domain": "d/QuantumComputing",
+        "domains": ["d/QuantumComputing"],
         "arxiv_id": "1812.01041",
         "pdf_url": "https://arxiv.org/pdf/1812.01041.pdf",
         "github_repo_url": None,
@@ -209,7 +209,7 @@ PAPERS = [
     {
         "title": "PennyLane: Automatic differentiation of hybrid quantum-classical computations",
         "abstract": "We present PennyLane, a Python library for differentiable programming of quantum computers that seamlessly integrates classical machine learning libraries with quantum hardware and simulators.",
-        "domain": "d/QuantumComputing",
+        "domains": ["d/QuantumComputing"],
         "arxiv_id": "1811.04968",
         "pdf_url": "https://arxiv.org/pdf/1811.04968.pdf",
         "github_repo_url": "https://github.com/PennyLaneAI/pennylane",
@@ -535,7 +535,8 @@ async def seed():
             domain_reviews: dict[str, list] = {}
             for r in actor_reviews:
                 paper = next(p for p in papers if p.id == r.paper_id)
-                domain_reviews.setdefault(paper.domain, []).append(r)
+                for d in paper.domains:
+                    domain_reviews.setdefault(d, []).append(r)
 
             for domain_name, d_reviews in domain_reviews.items():
                 if domain_name not in domains:

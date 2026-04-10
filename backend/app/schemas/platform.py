@@ -1,10 +1,15 @@
+import re
 import uuid
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 
 
 # --- Domain ---
+
+# Only alphanumeric, hyphens, and spaces — no commas, slashes (besides d/ prefix), or special chars
+_DOMAIN_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 -]*$')
+
 
 class DomainBase(BaseModel):
     name: str = Field(..., description="Name of the domain")
@@ -12,7 +17,21 @@ class DomainBase(BaseModel):
 
 
 class DomainCreate(DomainBase):
-    pass
+    @field_validator('name')
+    @classmethod
+    def validate_domain_name(cls, v: str) -> str:
+        # Strip d/ prefix for validation
+        raw = v[2:] if v.startswith('d/') else v
+        raw = raw.strip()
+        if not raw:
+            raise ValueError('Domain name cannot be empty')
+        if len(raw) > 60:
+            raise ValueError('Domain name must be 60 characters or fewer')
+        if ',' in raw:
+            raise ValueError('Create one domain at a time — separate names are not supported')
+        if not _DOMAIN_NAME_RE.match(raw):
+            raise ValueError('Domain name can only contain letters, numbers, hyphens, and spaces')
+        return v
 
 
 class DomainResponse(DomainBase):
@@ -46,21 +65,51 @@ class SubscriptionResponse(SubscriptionBase):
 
 # --- Paper ---
 
+def _normalize_domains(raw: str) -> list[str]:
+    """Parse a comma-separated domain string into a list with d/ prefixes."""
+    parts = [d.strip() for d in raw.split(",") if d.strip()]
+    return [d if d.startswith("d/") else f"d/{d}" for d in parts]
+
+
 class PaperBase(BaseModel):
     title: str = Field(..., description="Title of the paper")
     abstract: str = Field(..., description="Abstract of the paper")
-    domain: str = Field(..., description="The domain or category (e.g., d/LLM-Alignment)")
+    domains: list[str] = Field(..., description="Domains (e.g. ['d/NLP', 'd/Vision'])")
     pdf_url: Optional[str] = Field(None, description="URL to the PDF document")
     github_repo_url: Optional[str] = Field(None, description="URL to the GitHub repository")
 
 
-class PaperCreate(PaperBase):
-    pass
+class PaperCreate(BaseModel):
+    title: str = Field(..., description="Title of the paper")
+    abstract: str = Field(..., description="Abstract of the paper")
+    domain: str = Field(..., description="Domain(s) — comma-separated (e.g. 'NLP' or 'NLP, Vision')")
+    pdf_url: Optional[str] = Field(None, description="URL to the PDF document")
+    github_repo_url: Optional[str] = Field(None, description="URL to the GitHub repository")
+
+    @field_validator('domain')
+    @classmethod
+    def validate_domain(cls, v: str) -> str:
+        parts = [d.strip() for d in v.split(",") if d.strip()]
+        if not parts:
+            raise ValueError('At least one domain is required')
+        for part in parts:
+            raw = part[2:] if part.startswith('d/') else part
+            if not _DOMAIN_NAME_RE.match(raw):
+                raise ValueError(f'Invalid domain name: {raw}')
+        return v
+
+    def to_domains(self) -> list[str]:
+        return _normalize_domains(self.domain)
 
 
 class PaperIngest(BaseModel):
     arxiv_url: str = Field(..., description="arXiv URL or ID to ingest")
-    domain: Optional[str] = Field(None, description="Override domain assignment")
+    domain: Optional[str] = Field(None, description="Override domain assignment (comma-separated for multiple)")
+
+    def to_domains(self) -> list[str]:
+        if self.domain:
+            return _normalize_domains(self.domain)
+        return []
 
 
 class PaperResponse(PaperBase):
@@ -182,7 +231,7 @@ class SearchResultThread(BaseModel):
     score: float
     paper_id: uuid.UUID
     paper_title: str
-    paper_domain: str
+    paper_domains: list[str]
     root_comment: "CommentResponse"
 
 
@@ -233,7 +282,7 @@ class UserPaperResponse(BaseModel):
     id: uuid.UUID
     title: str
     abstract: str
-    domain: str
+    domains: list[str]
     pdf_url: Optional[str] = None
     github_repo_url: Optional[str] = None
     preview_image_url: Optional[str] = None
@@ -251,7 +300,7 @@ class UserCommentResponse(BaseModel):
     id: uuid.UUID
     paper_id: uuid.UUID
     paper_title: str
-    paper_domain: str
+    paper_domains: list[str]
     content_markdown: str
     content_preview: str
     net_score: int = 0

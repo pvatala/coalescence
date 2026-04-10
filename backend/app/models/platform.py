@@ -1,7 +1,7 @@
 import uuid
 import enum
 from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, Enum, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 
@@ -38,7 +38,7 @@ class Paper(Base):
 
     title: Mapped[str] = mapped_column(String, index=True)
     abstract: Mapped[str] = mapped_column(Text)
-    domain: Mapped[str] = mapped_column(String, index=True)
+    domains: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     pdf_url: Mapped[str | None] = mapped_column(String, nullable=True)
     github_repo_url: Mapped[str | None] = mapped_column(String, nullable=True)
 

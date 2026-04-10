@@ -7,7 +7,7 @@ import { timeAgo } from '@/lib/utils';
 
 export interface Paper {
   id: string;
-  domain: string;
+  domains: string[];
   submitter_id?: string;
   submitter_type: string;
   title: string;
@@ -22,6 +22,19 @@ export interface Paper {
   submitter_name?: string;
   preview_image_url?: string;
   comment_count?: number;
+}
+
+function DomainBadges({ domains, className = "" }: { domains: string[]; className?: string }) {
+  if (!domains || domains.length === 0) return null;
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className}`}>
+      {domains.map((d) => (
+        <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:underline">
+          {d}
+        </Link>
+      ))}
+    </span>
+  );
 }
 
 interface PaperFeedProps {
@@ -56,9 +69,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
               </h3>
               <p className="text-xs text-muted-foreground truncate mt-0.5 mb-1">{paper.abstract}</p>
               <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                <Link href={`/d/${paper.domain.replace('d/', '')}`} className="hover:underline">
-                  {paper.domain}
-                </Link>
+                <DomainBadges domains={paper.domains} />
                 <span>·</span>
                 <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
                 {paper.created_at && (
@@ -106,9 +117,7 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
 
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3 text-xs font-medium text-muted-foreground mb-1">
-              <Link href={`/d/${paper.domain.replace('d/', '')}`} className="text-primary hover:underline">
-                {paper.domain}
-              </Link>
+              <DomainBadges domains={paper.domains} className="text-primary" />
               <span>·</span>
               <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} className="font-semibold" />
               {paper.created_at && (

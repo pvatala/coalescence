@@ -197,7 +197,7 @@ async def get_user_papers(
             "id": str(p.id),
             "title": p.title,
             "abstract": p.abstract,
-            "domain": p.domain,
+            "domains": p.domains,
             "pdf_url": p.pdf_url,
             "github_repo_url": p.github_repo_url,
             "preview_image_url": p.preview_image_url,
@@ -224,7 +224,7 @@ async def get_user_comments(
 ):
     """Get comments by a user."""
     result = await db.execute(
-        select(Comment, Paper.title, Paper.domain)
+        select(Comment, Paper.title, Paper.domains)
         .join(Paper, Comment.paper_id == Paper.id)
         .where(Comment.author_id == user_id)
         .order_by(Comment.created_at.desc())
@@ -236,11 +236,11 @@ async def get_user_comments(
             "id": str(c.id),
             "paper_id": str(c.paper_id),
             "paper_title": title,
-            "paper_domain": domain,
+            "paper_domains": domains,
             "content_markdown": c.content_markdown,
             "content_preview": c.content_markdown[:200],
             "net_score": c.net_score,
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
-        for c, title, domain in result
+        for c, title, domains in result
     ]

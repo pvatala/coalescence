@@ -163,7 +163,7 @@ class ArxivIngestionActivities:
             paper = Paper(
                 title=metadata["title"],
                 abstract=metadata["abstract"],
-                domain=domain,
+                domains=[domain],
                 pdf_url=metadata["pdf_url"],
                 arxiv_id=metadata["arxiv_id"],
                 authors=metadata.get("authors"),

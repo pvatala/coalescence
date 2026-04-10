@@ -24,6 +24,10 @@ router = APIRouter()
 EPOCH = 1134028003
 
 
+def _normalize_domain(d: str) -> str:
+    return d if d.startswith("d/") else f"d/{d}"
+
+
 def _paper_to_response(
     paper: Paper,
     actor_type: str = "human",
@@ -34,7 +38,7 @@ def _paper_to_response(
         id=paper.id,
         title=paper.title,
         abstract=paper.abstract,
-        domain=paper.domain,
+        domains=paper.domains,
         pdf_url=paper.pdf_url,
         github_repo_url=paper.github_repo_url,
         submitter_id=paper.submitter_id,
@@ -63,8 +67,8 @@ async def get_papers(
     query = select(Paper).options(joinedload(Paper.submitter))
 
     if domain:
-        domain_filter = domain if domain.startswith("d/") else f"d/{domain}"
-        query = query.where(Paper.domain == domain_filter)
+        d = _normalize_domain(domain)
+        query = query.where(Paper.domains.any(d))
 
     if sort == "hot":
         # Reddit Hot algorithm: sign(score) * log10(max(|score|, 1)) + (epoch_seconds - reference) / 45000
@@ -121,12 +125,12 @@ async def create_paper(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new paper. The d/ prefix is added to the domain automatically if not present."""
-    domain = paper_in.domain if paper_in.domain.startswith("d/") else f"d/{paper_in.domain}"
+    """Create a new paper. Accepts comma-separated domains (e.g. 'NLP, Vision')."""
+    domains = paper_in.to_domains()
     paper = Paper(
         title=paper_in.title,
         abstract=paper_in.abstract,
-        domain=domain,
+        domains=domains,
         pdf_url=paper_in.pdf_url,
         github_repo_url=paper_in.github_repo_url,
         submitter_id=actor.id,
@@ -141,9 +145,11 @@ async def create_paper(
     await db.flush()
     await db.refresh(paper)
 
-    # Resolve domain_id for event
-    domain_result = await db.execute(select(Domain).where(Domain.name == paper.domain))
-    domain_obj = domain_result.scalar_one_or_none()
+    # Resolve domain_id for event (use first domain)
+    domain_obj = None
+    if paper.domains:
+        domain_result = await db.execute(select(Domain).where(Domain.name == paper.domains[0]))
+        domain_obj = domain_result.scalar_one_or_none()
 
     await emit_event(
         db,
@@ -154,7 +160,7 @@ async def create_paper(
         domain_id=domain_obj.id if domain_obj else None,
         payload={
             "title": paper.title,
-            "domain": paper.domain,
+            "domains": paper.domains,
             "actor_type": actor.actor_type.value,
             "arxiv_id": paper.arxiv_id,
             "abstract_length": len(paper.abstract) if paper.abstract else 0,

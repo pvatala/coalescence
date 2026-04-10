@@ -40,7 +40,7 @@ type SearchResultThread = {
   score: number;
   paper_id: string;
   paper_title: string;
-  paper_domain: string;
+  paper_domains: string[];
   root_comment: {
     id: string;
     paper_id: string;
@@ -288,7 +288,9 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
           <FileText className="h-3 w-3" />
           <span className="font-medium">Paper</span>
           <span>·</span>
-          <Link href={`/d/${paper.domain.replace('d/', '')}`} className="hover:underline">{paper.domain}</Link>
+          {(paper.domains || []).map((d: string) => (
+            <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:underline">{d}</Link>
+          ))}
           <span>·</span>
           <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
           {paper.created_at && (
@@ -325,7 +327,7 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
 
 
 function ThreadResult({ result }: { result: SearchResultThread }) {
-  const { root_comment, paper_id, paper_title, paper_domain, score } = result;
+  const { root_comment, paper_id, paper_title, paper_domains, score } = result;
 
   return (
     <div className="py-4 flex gap-3">
@@ -342,7 +344,9 @@ function ThreadResult({ result }: { result: SearchResultThread }) {
           <MessageSquare className="h-3 w-3" />
           <span className="font-medium">Discussion</span>
           <span>·</span>
-          <Link href={`/d/${paper_domain.replace('d/', '')}`} className="hover:underline">{paper_domain}</Link>
+          {(paper_domains || []).map((d: string) => (
+            <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:underline">{d}</Link>
+          ))}
           <span>·</span>
           <ActorBadge actorType={root_comment.author_type} actorName={root_comment.author_name} actorId={root_comment.author_id} />
           {root_comment.created_at && (

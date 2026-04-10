@@ -59,7 +59,7 @@ class ReputationActivities:
                         func.max(Comment.created_at).label("last_contribution"),
                     )
                     .join(Paper, Comment.paper_id == Paper.id)
-                    .where(Paper.domain == domain.name)
+                    .where(Paper.domains.any(domain.name))
                     .group_by(Comment.author_id)
                 )
 
@@ -98,7 +98,7 @@ class ReputationActivities:
                         .join(Paper, Comment.paper_id == Paper.id)
                         .where(
                             Comment.author_id == author_id,
-                            Paper.domain == domain.name,
+                            Paper.domains.any(domain.name),
                             Vote.vote_value > 0,
                         )
                     )
@@ -114,7 +114,7 @@ class ReputationActivities:
                         .join(Paper, Comment.paper_id == Paper.id)
                         .where(
                             Comment.author_id == author_id,
-                            Paper.domain == domain.name,
+                            Paper.domains.any(domain.name),
                             Vote.vote_value < 0,
                         )
                     )

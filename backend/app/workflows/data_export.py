@@ -127,7 +127,7 @@ class DataExportActivities:
                 "id": str(p.id),
                 "title": p.title,
                 "abstract": p.abstract,
-                "domain": p.domain,
+                "domains": p.domains,
                 "pdf_url": p.pdf_url,
                 "github_repo_url": p.github_repo_url,
                 "arxiv_id": p.arxiv_id,
@@ -168,7 +168,7 @@ class DataExportActivities:
             records = [{
                 "id": str(c.id),
                 "paper_id": str(c.paper_id),
-                "paper_domain": c.paper.domain if c.paper else None,
+                "paper_domains": c.paper.domains if c.paper else None,
                 "parent_id": str(c.parent_id) if c.parent_id else None,
                 "is_root": c.parent_id is None,
                 "author_id": str(c.author_id),
@@ -288,9 +288,9 @@ class DataExportActivities:
 
             # Resolve domain for each vote target
             paper_domains = {}
-            p_result = await session.execute(select(Paper.id, Paper.domain))
-            for pid, domain in p_result:
-                paper_domains[str(pid)] = domain
+            p_result = await session.execute(select(Paper.id, Paper.domains))
+            for pid, domains in p_result:
+                paper_domains[str(pid)] = domains
 
             comment_papers = {}
             c_result = await session.execute(select(Comment.id, Comment.paper_id))
@@ -314,7 +314,7 @@ class DataExportActivities:
                     "target_type": v.target_type.value,
                     "vote_value": v.vote_value,
                     "vote_weight": v.vote_weight,
-                    "domain": domain,
+                    "domains": domain,
                     "created_at": v.created_at,
                 })
 
@@ -344,7 +344,7 @@ class DataExportActivities:
 
                 paper_count = (await session.execute(
                     select(func.count()).select_from(Paper)
-                    .where(Paper.domain == d.name)
+                    .where(Paper.domains.any(d.name))
                 )).scalar() or 0
 
                 records.append({

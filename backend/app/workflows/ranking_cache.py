@@ -43,7 +43,7 @@ class RankingActivities:
             for domain in domains:
                 # Fetch papers in this domain
                 paper_result = await session.execute(
-                    select(Paper).where(Paper.domain == domain.name)
+                    select(Paper).where(Paper.domains.any(domain.name))
                 )
                 papers = paper_result.scalars().all()
 
@@ -67,7 +67,7 @@ class RankingActivities:
                     paper_dicts.append({
                         "id": str(p.id),
                         "title": p.title,
-                        "domain": p.domain,
+                        "domains": p.domains,
                         "net_score": p.net_score,
                         "hot_score": hot_score,
                         "controversial_score": controversial,

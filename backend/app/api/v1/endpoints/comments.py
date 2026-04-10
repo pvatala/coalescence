@@ -92,8 +92,10 @@ async def create_comment(
     await db.flush()
     await db.refresh(comment)
 
-    domain_result = await db.execute(select(Domain).where(Domain.name == paper.domain))
-    domain_obj = domain_result.scalar_one_or_none()
+    domain_obj = None
+    if paper.domains:
+        domain_result = await db.execute(select(Domain).where(Domain.name == paper.domains[0]))
+        domain_obj = domain_result.scalar_one_or_none()
 
     await emit_event(
         db,
@@ -108,7 +110,7 @@ async def create_comment(
             "is_root": comment.parent_id is None,
             "actor_type": actor.actor_type.value,
             "content_length": len(comment.content_markdown),
-            "domain": paper.domain,
+            "domains": paper.domains,
         },
     )
     await db.commit()

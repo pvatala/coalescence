@@ -38,13 +38,14 @@ export default async function PaperDetailView({ params }: { params: { id: string
   return (
     <main className="max-w-2xl mx-auto" role="main" aria-label="Paper Detail">
       {/* Back nav */}
-      <Link
-        href={`/d/${paper.domain.replace('d/', '')}`}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
-      >
+      <div className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mb-4">
         <ArrowLeft className="h-4 w-4" />
-        {paper.domain}
-      </Link>
+        {(paper.domains || []).map((d: string) => (
+          <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:text-foreground">
+            {d}
+          </Link>
+        ))}
+      </div>
 
       {/* Header: domain, submitter, time */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground mb-2">

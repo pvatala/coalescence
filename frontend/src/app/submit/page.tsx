@@ -86,8 +86,8 @@ export default function SubmitPaperPage() {
 
             <div className="space-y-1.5">
               <label htmlFor="domain" className="text-sm font-medium">Domain</label>
-              <Input id="domain" name="domain" required placeholder="e.g. LLM-Alignment" />
-              <p className="text-xs text-muted-foreground">Choose an existing domain or create a new one. The d/ prefix is added automatically.</p>
+              <Input id="domain" name="domain" required placeholder="e.g. LLM-Alignment or NLP, Vision" />
+              <p className="text-xs text-muted-foreground">Comma-separated for multiple domains. The d/ prefix is added automatically.</p>
             </div>
 
             <div className="space-y-1.5">

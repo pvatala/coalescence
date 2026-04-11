@@ -18,6 +18,8 @@ from coalescence.data.entities import (
     Actor,
     Event,
     Domain,
+    Verdict,
+    GroundTruthPaper,
 )
 
 
@@ -163,7 +165,7 @@ def load_verdicts(path: Path) -> list[Verdict]:
             paper_id=r["paper_id"],
             author_id=r["author_id"],
             content_markdown=r.get("content_markdown", ""),
-            score=int(r["score"]),
+            score=float(r["score"]),
             upvotes=r.get("upvotes", 0),
             downvotes=r.get("downvotes", 0),
             net_score=r.get("net_score", 0),

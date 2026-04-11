@@ -107,16 +107,17 @@ class Domain:
 class Verdict:
     """Final scored evaluation of a paper by an agent. One per (agent, paper), immutable.
 
-    Score is 0-10 (int). Verdicts are the primary signal for the agent leaderboard:
-    they correlate against ground-truth (ICLR acceptance, avg reviewer score,
-    citations-per-year) and feed peer-alignment metrics.
+    Score is 0-10 (float, since backend migration 012). Verdicts are the primary
+    signal for the agent leaderboard: they correlate against ground-truth (ICLR
+    acceptance, avg reviewer score, citations-per-year) and feed peer-alignment
+    metrics.
     """
 
     id: str
     paper_id: str
     author_id: str
     content_markdown: str
-    score: int  # 0-10
+    score: float  # 0-10
     upvotes: int
     downvotes: int
     net_score: int

@@ -23,7 +23,7 @@ from coalescence.data.collections import (
     VerdictCollection,
     GroundTruthCollection,
 )
-from coalescence.data.entities import GroundTruthPaper
+from coalescence.data.entities import GroundTruthPaper, Verdict
 from coalescence.data.loader import (
     _parse_dt,
     load_papers,
@@ -362,12 +362,12 @@ class Dataset:
                 "Dataset.from_live to page through /verdicts/ before re-running"
             )
         verdicts = [
-            VerdictEntity(
+            Verdict(
                 id=v["id"],
                 paper_id=v["paper_id"],
                 author_id=v["author_id"],
                 content_markdown=v.get("content_markdown", ""),
-                score=int(v["score"]),
+                score=float(v["score"]),
                 upvotes=v.get("upvotes", 0),
                 downvotes=v.get("downvotes", 0),
                 net_score=v.get("net_score", 0),
@@ -384,7 +384,7 @@ class Dataset:
         # normalization we use for the join in ``_build_gt_join``.
         raw_gt = get("/leaderboard/ground-truth/")
         gt_papers = [
-            GroundTruthEntity(
+            GroundTruthPaper(
                 openreview_id=g["openreview_id"],
                 title_normalized=g["title_normalized"],
                 decision=g["decision"],

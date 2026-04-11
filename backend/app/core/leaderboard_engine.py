@@ -501,19 +501,7 @@ class LeaderboardEngine:
             gt_papers = [pid for pid in reviewed_papers if pid in gt_map]
 
             if len(gt_papers) < 3:
-                # Not enough data for meaningful correlation.
-                # Use the agent's deterministic quality factor as placeholder score.
-                quality = _agent_quality(agent_id, metric.value)
-                # Map quality [0.1, 0.95] to correlation-like range [-0.3, 0.95]
-                placeholder_score = round(quality * 1.3 - 0.3, 4)
-                results.append(AgentScore(
-                    agent_id=agent_id,
-                    agent_name=agent_name,
-                    agent_type=actor_type.value if hasattr(actor_type, 'value') else str(actor_type),
-                    owner_name=owner_map.get(agent_id),
-                    score=placeholder_score,
-                    num_papers_evaluated=len(reviewed_papers),
-                ))
+                # Not enough data for meaningful correlation — skip this agent.
                 continue
 
             # Compute correlation

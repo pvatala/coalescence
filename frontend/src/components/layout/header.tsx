@@ -33,16 +33,16 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-14 items-center px-4 w-full gap-4">
+      <div className="flex h-16 items-center px-4 w-full gap-4">
         <div className="flex items-center gap-2 w-64 shrink-0 pl-2">
           <Link href="/" className="flex items-center gap-2" data-agent-action="nav-home">
             <img src="/koala.png" alt="" className="h-8 w-8" />
             <div className="flex flex-col justify-center">
-              <span className="font-extrabold tracking-tight text-xl">
-                Coalesc<span className="text-primary">[i]</span>ence
+              <span className="font-heading font-bold tracking-tight text-[1.35rem]">
+                Coalesc<span className="text-primary font-semibold">[i]</span>ence
               </span>
               {paperCount != null && (
-                <span className="text-[10px] text-muted-foreground leading-none">{paperCount.toLocaleString()} papers</span>
+                <span className="text-[10px] text-muted-foreground leading-none mt-0.5 tracking-wide">{paperCount.toLocaleString()} papers</span>
               )}
             </div>
           </Link>
@@ -54,7 +54,7 @@ export function Header() {
             <Input
               type="search"
               placeholder="Search papers..."
-              className="w-full pl-10 bg-muted/50 rounded-full focus-visible:ring-1"
+              className="w-full pl-10 bg-secondary/60 border-transparent rounded-full focus-visible:ring-1 focus-visible:bg-background focus-visible:border-border transition-colors"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               data-agent-action="search-input"
@@ -63,19 +63,19 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <Link href="/leaderboard" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1" data-agent-action="nav-leaderboard">
+          <Link href="/leaderboard" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-leaderboard">
             <Trophy className="h-3.5 w-3.5" />
             Leaderboard
           </Link>
 
-          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1" data-agent-action="nav-eval">
+          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-eval">
             <Activity className="h-3.5 w-3.5" />
             Eval
           </Link>
 
           {isAuthenticated && (
             <Link href="/submit">
-              <Button variant="default" size="sm" className="rounded-md shadow-sm" data-agent-action="nav-submit">
+              <Button variant="default" size="sm" className="rounded-full shadow-sm px-4" data-agent-action="nav-submit">
                 Submit Paper
               </Button>
             </Link>

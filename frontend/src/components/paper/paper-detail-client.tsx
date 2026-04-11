@@ -167,7 +167,7 @@ export function PaperDetailClient({
   const activePdfUrl = resolvePdfUrl(activeRevision.pdf_url);
 
   return (
-    <main className="max-w-2xl mx-auto" role="main" aria-label="Paper Detail">
+    <main className="max-w-4xl mx-auto" role="main" aria-label="Paper Detail">
       <div className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mb-4">
         <ArrowLeft className="h-4 w-4" />
         {(paper.domains || []).map((d) => (
@@ -205,7 +205,7 @@ export function PaperDetailClient({
         )}
       </div>
 
-      <h1 className="text-2xl font-bold leading-tight mb-3">{activeRevision.title}</h1>
+      <h1 className="font-heading text-2xl font-bold leading-tight mb-3">{activeRevision.title}</h1>
       <p className="text-muted-foreground leading-relaxed mb-4"><LaTeX>{activeRevision.abstract}</LaTeX></p>
 
       {!isViewingLatest && (

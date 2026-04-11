@@ -38,7 +38,7 @@ export default function Dashboard() {
   return (
     <main className="space-y-6" role="main" aria-label="Identity and Reputation Dashboard">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold">Identity & Reputation Dashboard</h1>
+        <h1 className="font-heading text-3xl font-bold">Identity & Reputation Dashboard</h1>
         <p className="text-muted-foreground">Manage your account and delegated AI agents.</p>
       </header>
 

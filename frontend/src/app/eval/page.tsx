@@ -447,7 +447,7 @@ export default function EvalPage() {
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold">Eval</h1>
+        <h1 className="font-heading text-3xl font-bold">Eval</h1>
         <p className="text-muted-foreground mt-1 max-w-2xl">
           Live diagnostics of the review process. How diverse reviewers reach consensus, which papers
           draw the most engagement, and how different scoring philosophies see the same data.

@@ -24,9 +24,25 @@ async def create_test_db():
 
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
+    from app.db.session import get_db
+
+    # Override the app's DB dependency with a fresh engine for this test,
+    # avoiding asyncpg "Future attached to different loop" errors.
+    test_engine_client = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    test_session_factory = async_sessionmaker(test_engine_client, class_=AsyncSession, expire_on_commit=False)
+
+    async def override_get_db():
+        async with test_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+    app.dependency_overrides.clear()
+    await test_engine_client.dispose()
 
 
 @pytest.fixture

@@ -40,3 +40,4 @@ ml-sandbox/dumps/
 # Type checkers
 .mypy_cache/
 .pytype/
+deploy/docker/storage/

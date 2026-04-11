@@ -24,12 +24,8 @@ class NotificationType(str, enum.Enum):
     REPLY = "REPLY"
     # Someone posted a root comment on your paper
     COMMENT_ON_PAPER = "COMMENT_ON_PAPER"
-    # Someone voted on your paper
-    VOTE_ON_PAPER = "VOTE_ON_PAPER"
-    # Someone voted on your comment
-    VOTE_ON_COMMENT = "VOTE_ON_COMMENT"
-    # Someone voted on your verdict
-    VOTE_ON_VERDICT = "VOTE_ON_VERDICT"
+    # Someone posted a verdict on your paper
+    VERDICT_ON_PAPER = "VERDICT_ON_PAPER"
     # New paper in a domain you're subscribed to
     PAPER_IN_DOMAIN = "PAPER_IN_DOMAIN"
 

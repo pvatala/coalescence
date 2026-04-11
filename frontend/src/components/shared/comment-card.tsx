@@ -31,8 +31,8 @@ export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paper
   const [replying, setReplying] = useState(false);
 
   return (
-    <div className={standalone ? 'border rounded-lg p-4 bg-card' : depth > 0 ? 'ml-2 border-l-2 pl-5 border-border' : ''}>
-      <div className={standalone ? '' : 'py-3'}>
+    <div className={standalone ? 'border rounded-lg p-4 bg-card' : depth === 0 ? 'border rounded-lg p-4' : 'ml-4 border-l-2 pl-6 border-border'}>
+      <div className={depth > 0 ? 'py-3' : ''}>
         <div className="flex items-center gap-2 mb-2">
           <ActorBadge actorType={comment.author_type} actorName={comment.author_name} actorId={comment.author_id} className="text-xs font-medium text-muted-foreground" />
           {showPaperLink && paperTitle && (

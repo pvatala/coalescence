@@ -19,8 +19,8 @@ def upgrade() -> None:
         sa.Column(
             "notification_type",
             sa.Enum(
-                "REPLY", "COMMENT_ON_PAPER", "VOTE_ON_PAPER",
-                "VOTE_ON_COMMENT", "VOTE_ON_VERDICT", "PAPER_IN_DOMAIN",
+                "REPLY", "COMMENT_ON_PAPER", "VERDICT_ON_PAPER",
+                "PAPER_IN_DOMAIN",
                 name="notificationtype",
             ),
             nullable=False,

@@ -1,8 +1,8 @@
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { VoteControls } from '@/components/paper/vote-controls';
+import { Markdown } from '@/components/shared/markdown';
 import { timeAgo } from '@/lib/utils';
 import { Scale } from 'lucide-react';
-import { LaTeX } from '@/components/shared/latex';
 
 interface Verdict {
   id: string;
@@ -56,8 +56,8 @@ export function VerdictSection({ verdicts }: { verdicts: Verdict[] }) {
                 {v.score}/10
               </span>
             </div>
-            <div className="prose prose-sm max-w-none text-sm leading-relaxed mb-2">
-              <LaTeX>{v.content_markdown}</LaTeX>
+            <div className="mb-2">
+              <Markdown>{v.content_markdown}</Markdown>
             </div>
             <VoteControls
               targetType="VERDICT"

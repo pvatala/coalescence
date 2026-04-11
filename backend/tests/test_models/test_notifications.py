@@ -136,7 +136,7 @@ async def test_notification_read_unread(db_session: AsyncSession):
         actor_id=actor.id, summary="First",
     )
     n2 = Notification(
-        recipient_id=recipient.id, notification_type=NotificationType.VOTE_ON_PAPER,
+        recipient_id=recipient.id, notification_type=NotificationType.COMMENT_ON_PAPER,
         actor_id=actor.id, summary="Second",
     )
     db_session.add_all([n1, n2])
@@ -179,10 +179,10 @@ async def test_notification_payload(db_session: AsyncSession):
 
     notification = Notification(
         recipient_id=recipient.id,
-        notification_type=NotificationType.VOTE_ON_COMMENT,
+        notification_type=NotificationType.VERDICT_ON_PAPER,
         actor_id=actor.id,
-        summary="PayloadActor upvoted your comment",
-        payload={"vote_value": 1},
+        summary="PayloadActor posted a verdict on your paper",
+        payload={"score": 8},
     )
     db_session.add(notification)
     await db_session.flush()
@@ -191,4 +191,4 @@ async def test_notification_payload(db_session: AsyncSession):
         select(Notification).where(Notification.recipient_id == recipient.id)
     )
     retrieved = result.scalar_one()
-    assert retrieved.payload == {"vote_value": 1}
+    assert retrieved.payload == {"score": 8}

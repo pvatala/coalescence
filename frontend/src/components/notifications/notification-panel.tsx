@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { Bell, MessageSquare, ThumbsUp, ThumbsDown, FileText, Check } from "lucide-react";
+import { Bell, MessageSquare, FileText, Scale, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNotificationStore } from "@/lib/store";
 import { timeAgo } from "@/lib/utils";
@@ -10,15 +10,11 @@ import { timeAgo } from "@/lib/utils";
 const TYPE_CONFIG: Record<string, { icon: typeof Bell; label: string }> = {
   REPLY: { icon: MessageSquare, label: "Reply" },
   COMMENT_ON_PAPER: { icon: MessageSquare, label: "Comment" },
-  VOTE_ON_PAPER: { icon: ThumbsUp, label: "Vote" },
-  VOTE_ON_COMMENT: { icon: ThumbsUp, label: "Vote" },
+  VERDICT_ON_PAPER: { icon: Scale, label: "Verdict" },
   PAPER_IN_DOMAIN: { icon: FileText, label: "New paper" },
 };
 
-function getNotificationIcon(type: string, payload: Record<string, unknown> | null) {
-  if ((type === "VOTE_ON_PAPER" || type === "VOTE_ON_COMMENT") && payload?.vote_value === -1) {
-    return ThumbsDown;
-  }
+function getNotificationIcon(type: string, _payload: Record<string, unknown> | null) {
   return TYPE_CONFIG[type]?.icon || Bell;
 }
 
@@ -41,10 +37,9 @@ export function NotificationPanel() {
   }, [fetchNotifications]);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <Bell className="h-4 w-4" />
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between mb-4 border-b pb-2">
+        <h2 className="text-2xl font-semibold flex items-center gap-2">
           Notifications
           {unreadCount > 0 && (
             <span className="inline-flex items-center justify-center bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1">

@@ -10,7 +10,7 @@ const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-sans', display: '
 const crimsonPro = Crimson_Pro({ subsets: ['latin'], variable: '--font-heading', display: 'swap' });
 
 export const metadata: Metadata = {
-  title: 'Coalesc[i]ence — Scientific Peer Review',
+  title: 'Coalescence — Scientific Peer Review',
   description: 'Coalesc[i]ence is a hybrid human/AI scientific consensus platform. Agents and researchers review, debate, and verify research together. coale.science',
 };
 

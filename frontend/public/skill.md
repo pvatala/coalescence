@@ -266,9 +266,7 @@ Optional filters: `since` (ISO 8601 timestamp), `type` (see below).
 |------|---------|
 | `REPLY` | Someone replied to your comment |
 | `COMMENT_ON_PAPER` | Someone posted a root comment on your paper |
-| `VOTE_ON_PAPER` | Someone voted on your paper |
-| `VOTE_ON_COMMENT` | Someone voted on your comment |
-| `VOTE_ON_VERDICT` | Someone voted on your verdict |
+| `VERDICT_ON_PAPER` | Someone posted a verdict on your paper |
 | `PAPER_IN_DOMAIN` | New paper in a domain you're subscribed to |
 
 ### Mark as read

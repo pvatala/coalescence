@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification, NotificationType
-from app.models.platform import Paper, Comment, Verdict, Subscription, Domain
+from app.models.platform import Paper, Comment, Subscription, Domain
 from app.models.identity import Actor
 
 logger = logging.getLogger(__name__)
@@ -41,9 +41,9 @@ async def emit_notifications(
         notifications = await _handle_comment_posted(
             db, actor_id, actor_name, target_id, payload,
         )
-    elif event_type == "VOTE_CAST":
-        notifications = await _handle_vote_cast(
-            db, actor_id, actor_name, target_id, target_type, payload,
+    elif event_type == "VERDICT_POSTED":
+        notifications = await _handle_verdict_posted(
+            db, actor_id, actor_name, target_id, payload,
         )
     elif event_type == "PAPER_SUBMITTED":
         notifications = await _handle_paper_submitted(
@@ -127,90 +127,38 @@ async def _handle_comment_posted(
     return notifications
 
 
-async def _handle_vote_cast(
+async def _handle_verdict_posted(
     db: AsyncSession,
     actor_id: uuid.UUID,
     actor_name: str | None,
-    target_id: uuid.UUID | None,
-    target_type: str | None,
+    verdict_id: uuid.UUID | None,
     payload: dict,
 ) -> list[Notification]:
-    """A vote was cast. Notify the target's author."""
+    """A verdict was posted. Notify the paper's submitter."""
     notifications = []
-    if target_id is None or target_type is None:
+    paper_id_str = payload.get("paper_id")
+    if not paper_id_str:
         return notifications
 
-    vote_value = payload.get("vote_value", 0)
-    action = payload.get("action", "new")
+    paper_id = uuid.UUID(paper_id_str)
+    paper_title = payload.get("paper_title")
+    score = payload.get("score")
 
-    # Don't notify on toggle_off (vote removed)
-    if action == "toggle_off" or vote_value == 0:
-        return notifications
+    result = await db.execute(select(Paper.submitter_id).where(Paper.id == paper_id))
+    submitter_id = result.scalar_one_or_none()
 
-    vote_label = "upvoted" if vote_value > 0 else "downvoted"
-
-    if target_type == "PAPER":
-        result = await db.execute(
-            select(Paper.submitter_id, Paper.title).where(Paper.id == target_id)
-        )
-        row = result.one_or_none()
-        if row and row[0] != actor_id:
-            notifications.append(Notification(
-                recipient_id=row[0],
-                notification_type=NotificationType.VOTE_ON_PAPER,
-                actor_id=actor_id,
-                actor_name=actor_name,
-                paper_id=target_id,
-                paper_title=row[1],
-                summary=f"{actor_name or 'Someone'} {vote_label} your paper \"{row[1] or 'Untitled'}\"",
-                payload={"vote_value": vote_value},
-            ))
-
-    elif target_type == "COMMENT":
-        result = await db.execute(
-            select(Comment.author_id, Comment.paper_id).where(Comment.id == target_id)
-        )
-        row = result.one_or_none()
-        if row and row[0] != actor_id:
-            # Get paper title for context
-            paper_title = None
-            if row[1]:
-                paper_result = await db.execute(select(Paper.title).where(Paper.id == row[1]))
-                paper_title = paper_result.scalar_one_or_none()
-
-            notifications.append(Notification(
-                recipient_id=row[0],
-                notification_type=NotificationType.VOTE_ON_COMMENT,
-                actor_id=actor_id,
-                actor_name=actor_name,
-                paper_id=row[1],
-                paper_title=paper_title,
-                comment_id=target_id,
-                summary=f"{actor_name or 'Someone'} {vote_label} your comment on \"{paper_title or 'a paper'}\"",
-                payload={"vote_value": vote_value},
-            ))
-
-    elif target_type == "VERDICT":
-        result = await db.execute(
-            select(Verdict.author_id, Verdict.paper_id).where(Verdict.id == target_id)
-        )
-        row = result.one_or_none()
-        if row and row[0] != actor_id:
-            paper_title = None
-            if row[1]:
-                paper_result = await db.execute(select(Paper.title).where(Paper.id == row[1]))
-                paper_title = paper_result.scalar_one_or_none()
-
-            notifications.append(Notification(
-                recipient_id=row[0],
-                notification_type=NotificationType.VOTE_ON_VERDICT,
-                actor_id=actor_id,
-                actor_name=actor_name,
-                paper_id=row[1],
-                paper_title=paper_title,
-                summary=f"{actor_name or 'Someone'} {vote_label} your verdict on \"{paper_title or 'a paper'}\"",
-                payload={"vote_value": vote_value},
-            ))
+    if submitter_id and submitter_id != actor_id:
+        score_text = f" ({score}/10)" if score is not None else ""
+        notifications.append(Notification(
+            recipient_id=submitter_id,
+            notification_type=NotificationType.VERDICT_ON_PAPER,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            paper_id=paper_id,
+            paper_title=paper_title,
+            summary=f"{actor_name or 'Someone'} posted a verdict{score_text} on your paper \"{paper_title or 'Untitled'}\"",
+            payload={"score": score},
+        ))
 
     return notifications
 

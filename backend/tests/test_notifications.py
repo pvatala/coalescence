@@ -2,7 +2,8 @@
 Integration tests for notification emission logic.
 
 Tests that the right notifications are created for the right recipients
-when events fire (comments, votes, paper submissions).
+when events fire (comments, verdicts, paper submissions).
+Votes do NOT generate notifications.
 """
 import uuid
 from unittest.mock import patch, AsyncMock
@@ -16,7 +17,9 @@ from app.models.notification import Notification, NotificationType
 from app.core.notifications import emit_notifications
 
 
-# Patch Redis pub/sub to avoid needing a running Redis instance
+# --- Comment notifications ---
+
+
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
 async def test_reply_notifies_parent_author(mock_redis, db_session: AsyncSession):
     """Replying to a comment notifies the parent comment's author."""
@@ -29,12 +32,10 @@ async def test_reply_notifies_parent_author(mock_redis, db_session: AsyncSession
     db_session.add(paper)
     await db_session.flush()
 
-    # Bob posts a root comment
     root = Comment(paper_id=paper.id, author_id=bob.id, content_markdown="Great paper!")
     db_session.add(root)
     await db_session.flush()
 
-    # Alice replies to Bob's comment
     reply = Comment(paper_id=paper.id, parent_id=root.id, author_id=alice.id, content_markdown="Thanks!")
     db_session.add(reply)
     await db_session.flush()
@@ -100,8 +101,8 @@ async def test_root_comment_notifies_paper_submitter(mock_redis, db_session: Asy
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_reply_on_own_paper_generates_both_notifications(mock_redis, db_session: AsyncSession):
-    """Replying to a comment on your own paper: parent author gets REPLY,
+async def test_reply_only_notifies_parent_not_submitter(mock_redis, db_session: AsyncSession):
+    """Replying to a comment on someone's paper: parent author gets REPLY,
     but submitter doesn't get COMMENT_ON_PAPER (it's a reply, not root)."""
     owner = HumanAccount(name="Owner", email="owner_both@test.com", oauth_provider="github", oauth_id="owner_b1")
     reviewer = HumanAccount(name="Reviewer", email="rev_both@test.com", oauth_provider="github", oauth_id="rev_b1")
@@ -135,7 +136,6 @@ async def test_reply_on_own_paper_generates_both_notifications(mock_redis, db_se
     )
     await db_session.flush()
 
-    # Only reviewer gets REPLY, owner doesn't get notified (it's not a root comment)
     assert len(notifications) == 1
     assert notifications[0].recipient_id == reviewer.id
     assert notifications[0].notification_type == NotificationType.REPLY
@@ -201,153 +201,116 @@ async def test_no_self_notification_on_reply(mock_redis, db_session: AsyncSessio
     assert len(notifications) == 0
 
 
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_vote_on_paper_notifies_submitter(mock_redis, db_session: AsyncSession):
-    """Upvoting a paper notifies the submitter."""
-    submitter = HumanAccount(name="VoteSub", email="votesub@test.com", oauth_provider="github", oauth_id="vs_1")
-    voter = HumanAccount(name="Voter", email="voter_p@test.com", oauth_provider="github", oauth_id="vp_1")
-    db_session.add_all([submitter, voter])
-    await db_session.flush()
-
-    paper = Paper(title="Voted Paper", abstract="Abstract", domains=["d/NLP"], submitter_id=submitter.id)
-    db_session.add(paper)
-    await db_session.flush()
-
-    notifications = await emit_notifications(
-        db_session,
-        event_type="VOTE_CAST",
-        actor_id=voter.id,
-        actor_name="Voter",
-        target_id=paper.id,
-        target_type="PAPER",
-        payload={"vote_value": 1, "action": "new"},
-    )
-    await db_session.flush()
-
-    assert len(notifications) == 1
-    assert notifications[0].recipient_id == submitter.id
-    assert notifications[0].notification_type == NotificationType.VOTE_ON_PAPER
-    assert "upvoted" in notifications[0].summary
+# --- Verdict notifications ---
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_downvote_on_comment_notifies_author(mock_redis, db_session: AsyncSession):
-    """Downvoting a comment notifies the comment's author."""
-    author = HumanAccount(name="CommentAuth", email="ca_vote@test.com", oauth_provider="github", oauth_id="ca_v1")
-    voter = HumanAccount(name="DownVoter", email="dv_vote@test.com", oauth_provider="github", oauth_id="dv_v1")
-    db_session.add_all([author, voter])
+async def test_verdict_notifies_paper_submitter(mock_redis, db_session: AsyncSession):
+    """Posting a verdict on a paper notifies the submitter with the score."""
+    submitter = HumanAccount(name="VerdictSub", email="vsub@test.com", oauth_provider="github", oauth_id="vsub_1")
+    reviewer = HumanAccount(name="VerdictReviewer", email="vrev@test.com", oauth_provider="github", oauth_id="vrev_1")
+    db_session.add_all([submitter, reviewer])
     await db_session.flush()
 
-    paper = Paper(title="Vote Comment Paper", abstract="Abstract", domains=["d/AI"], submitter_id=author.id)
+    paper = Paper(title="Verdict Paper", abstract="Abstract", domains=["d/NLP"], submitter_id=submitter.id)
     db_session.add(paper)
     await db_session.flush()
 
-    comment = Comment(paper_id=paper.id, author_id=author.id, content_markdown="My review")
-    db_session.add(comment)
-    await db_session.flush()
-
-    notifications = await emit_notifications(
-        db_session,
-        event_type="VOTE_CAST",
-        actor_id=voter.id,
-        actor_name="DownVoter",
-        target_id=comment.id,
-        target_type="COMMENT",
-        payload={"vote_value": -1, "action": "new"},
-    )
-    await db_session.flush()
-
-    assert len(notifications) == 1
-    assert notifications[0].recipient_id == author.id
-    assert notifications[0].notification_type == NotificationType.VOTE_ON_COMMENT
-    assert "downvoted" in notifications[0].summary
-
-
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_vote_on_verdict_notifies_author(mock_redis, db_session: AsyncSession):
-    """Voting on a verdict notifies the verdict's author."""
-    verdict_author = HumanAccount(name="VerdictAuth", email="va@test.com", oauth_provider="github", oauth_id="va_1")
-    voter = HumanAccount(name="VerdictVoter", email="vv@test.com", oauth_provider="github", oauth_id="vv_1")
-    db_session.add_all([verdict_author, voter])
-    await db_session.flush()
-
-    paper = Paper(title="Verdict Paper", abstract="Abstract", domains=["d/NLP"], submitter_id=verdict_author.id)
-    db_session.add(paper)
-    await db_session.flush()
-
-    verdict = Verdict(
-        paper_id=paper.id, author_id=verdict_author.id,
-        content_markdown="Strong accept", score=9,
-    )
+    verdict = Verdict(paper_id=paper.id, author_id=reviewer.id, content_markdown="Strong work", score=8)
     db_session.add(verdict)
     await db_session.flush()
 
     notifications = await emit_notifications(
         db_session,
-        event_type="VOTE_CAST",
-        actor_id=voter.id,
-        actor_name="VerdictVoter",
+        event_type="VERDICT_POSTED",
+        actor_id=reviewer.id,
+        actor_name="VerdictReviewer",
         target_id=verdict.id,
-        target_type="VERDICT",
-        payload={"vote_value": 1, "action": "new"},
+        payload={"paper_id": str(paper.id), "paper_title": "Verdict Paper", "score": 8},
     )
     await db_session.flush()
 
     assert len(notifications) == 1
-    assert notifications[0].recipient_id == verdict_author.id
-    assert notifications[0].notification_type == NotificationType.VOTE_ON_VERDICT
-    assert "verdict" in notifications[0].summary
+    assert notifications[0].recipient_id == submitter.id
+    assert notifications[0].notification_type == NotificationType.VERDICT_ON_PAPER
+    assert "(8/10)" in notifications[0].summary
+    assert notifications[0].payload == {"score": 8}
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_vote_toggle_off_no_notification(mock_redis, db_session: AsyncSession):
-    """Toggling off a vote (action=toggle_off) does NOT notify."""
-    submitter = HumanAccount(name="ToggleSub", email="toggle_sub@test.com", oauth_provider="github", oauth_id="ts_1")
-    voter = HumanAccount(name="ToggleVoter", email="toggle_voter@test.com", oauth_provider="github", oauth_id="tv_1")
-    db_session.add_all([submitter, voter])
-    await db_session.flush()
-
-    paper = Paper(title="Toggle Paper", abstract="Abstract", domains=["d/NLP"], submitter_id=submitter.id)
-    db_session.add(paper)
-    await db_session.flush()
-
-    notifications = await emit_notifications(
-        db_session,
-        event_type="VOTE_CAST",
-        actor_id=voter.id,
-        actor_name="ToggleVoter",
-        target_id=paper.id,
-        target_type="PAPER",
-        payload={"vote_value": 0, "action": "toggle_off"},
-    )
-    await db_session.flush()
-
-    assert len(notifications) == 0
-
-
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_no_self_notification_on_vote(mock_redis, db_session: AsyncSession):
-    """Voting on your own paper doesn't notify yourself."""
-    author = HumanAccount(name="SelfVoter", email="selfvote@test.com", oauth_provider="github", oauth_id="sv_1")
+async def test_verdict_on_own_paper_no_notification(mock_redis, db_session: AsyncSession):
+    """Posting a verdict on your own paper doesn't notify yourself."""
+    author = HumanAccount(name="SelfVerdict", email="selfverdict@test.com", oauth_provider="github", oauth_id="svd_1")
     db_session.add(author)
     await db_session.flush()
 
-    paper = Paper(title="Self Vote Paper", abstract="Abstract", domains=["d/AI"], submitter_id=author.id)
+    paper = Paper(title="Self Verdict Paper", abstract="Abstract", domains=["d/AI"], submitter_id=author.id)
     db_session.add(paper)
     await db_session.flush()
 
     notifications = await emit_notifications(
         db_session,
-        event_type="VOTE_CAST",
+        event_type="VERDICT_POSTED",
         actor_id=author.id,
-        actor_name="SelfVoter",
-        target_id=paper.id,
-        target_type="PAPER",
-        payload={"vote_value": 1, "action": "new"},
+        actor_name="SelfVerdict",
+        target_id=None,
+        payload={"paper_id": str(paper.id), "paper_title": "Self Verdict Paper", "score": 5},
     )
     await db_session.flush()
 
     assert len(notifications) == 0
+
+
+# --- Vote notifications (should NOT generate any) ---
+
+
+@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
+async def test_votes_do_not_generate_notifications(mock_redis, db_session: AsyncSession):
+    """Votes on papers, comments, and verdicts do NOT create notifications."""
+    submitter = HumanAccount(name="NoVoteNotif", email="novotenotif@test.com", oauth_provider="github", oauth_id="nvn_1")
+    voter = HumanAccount(name="SilentVoter", email="silentvoter@test.com", oauth_provider="github", oauth_id="svt_1")
+    db_session.add_all([submitter, voter])
+    await db_session.flush()
+
+    paper = Paper(title="No Vote Notif", abstract="Abstract", domains=["d/NLP"], submitter_id=submitter.id)
+    db_session.add(paper)
+    await db_session.flush()
+
+    # Vote on paper
+    n1 = await emit_notifications(
+        db_session, event_type="VOTE_CAST", actor_id=voter.id, actor_name="SilentVoter",
+        target_id=paper.id, target_type="PAPER",
+        payload={"vote_value": 1, "action": "new"},
+    )
+
+    # Vote on comment
+    comment = Comment(paper_id=paper.id, author_id=submitter.id, content_markdown="Test")
+    db_session.add(comment)
+    await db_session.flush()
+
+    n2 = await emit_notifications(
+        db_session, event_type="VOTE_CAST", actor_id=voter.id, actor_name="SilentVoter",
+        target_id=comment.id, target_type="COMMENT",
+        payload={"vote_value": -1, "action": "new"},
+    )
+
+    # Vote on verdict
+    verdict = Verdict(paper_id=paper.id, author_id=submitter.id, content_markdown="Review", score=7)
+    db_session.add(verdict)
+    await db_session.flush()
+
+    n3 = await emit_notifications(
+        db_session, event_type="VOTE_CAST", actor_id=voter.id, actor_name="SilentVoter",
+        target_id=verdict.id, target_type="VERDICT",
+        payload={"vote_value": 1, "action": "new"},
+    )
+
+    assert len(n1) == 0
+    assert len(n2) == 0
+    assert len(n3) == 0
+
+
+# --- Paper submission notifications ---
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
@@ -364,7 +327,6 @@ async def test_paper_submission_notifies_domain_subscribers(mock_redis, db_sessi
     db_session.add(domain)
     await db_session.flush()
 
-    # Two subscribers, one non-subscriber
     db_session.add_all([
         Subscription(domain_id=domain.id, subscriber_id=subscriber1.id),
         Subscription(domain_id=domain.id, subscriber_id=subscriber2.id),
@@ -385,7 +347,6 @@ async def test_paper_submission_notifies_domain_subscribers(mock_redis, db_sessi
     )
     await db_session.flush()
 
-    # Both subscribers get notified, submitter and non-subscriber don't
     assert len(notifications) == 2
     recipient_ids = {n.recipient_id for n in notifications}
     assert subscriber1.id in recipient_ids
@@ -424,6 +385,9 @@ async def test_paper_submission_submitter_not_self_notified(mock_redis, db_sessi
     await db_session.flush()
 
     assert len(notifications) == 0
+
+
+# --- Unknown events ---
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)

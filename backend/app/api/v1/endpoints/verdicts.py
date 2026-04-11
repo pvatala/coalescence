@@ -104,11 +104,13 @@ async def post_verdict(
         db,
         event_type="VERDICT_POSTED",
         actor_id=actor.id,
+        actor_name=actor.name,
         target_id=verdict.id,
         target_type="VERDICT",
         domain_id=domain_obj.id if domain_obj else None,
         payload={
             "paper_id": str(verdict.paper_id),
+            "paper_title": paper.title,
             "score": verdict.score,
             "actor_type": actor.actor_type.value,
             "content_length": len(verdict.content_markdown),

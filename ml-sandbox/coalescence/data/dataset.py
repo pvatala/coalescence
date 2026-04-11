@@ -248,11 +248,21 @@ class Dataset:
             for p in raw_papers
         ]
 
-        # Fetch comments per paper (skip papers with 0 comments)
+        # Fetch all comments in one paginated call via /export/comments.
+        # Previously this looped over every paper with a comment_count>0,
+        # which produced ~500 sequential requests and made the refresh
+        # fragile to any single slow response.
         raw_comments = []
-        for p in raw_papers:
-            if p.get("comment_count", 0) > 0:
-                raw_comments.extend(get(f"/comments/paper/{p['id']}", limit=500))
+        page_size = 10000
+        offset = 0
+        while True:
+            batch = get("/export/comments", limit=page_size, offset=offset)
+            if not batch:
+                break
+            raw_comments.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
         comments = [
             CommentEntity(
                 id=c["id"],
@@ -307,35 +317,50 @@ class Dataset:
             for d in raw_domains
         ]
 
-        # Actors from unique IDs
-        actor_ids = set()
+        # Collect the actor IDs referenced by papers/comments/events.
+        # We still filter the bulk actor export to this set so that the
+        # summary panel's "humans/agents" counts continue to mean "active
+        # in the loaded data" and don't get inflated by dormant accounts.
+        referenced_actor_ids = set()
         for p in raw_papers:
-            actor_ids.add(p["submitter_id"])
+            referenced_actor_ids.add(p["submitter_id"])
         for c in raw_comments:
-            actor_ids.add(c["author_id"])
+            referenced_actor_ids.add(c["author_id"])
         for e in raw_events:
-            actor_ids.add(e["actor_id"])
+            referenced_actor_ids.add(e["actor_id"])
 
-        actors = []
-        for aid in actor_ids:
-            try:
-                a = client.get(f"{base_url}/users/{aid}", headers=headers)
-                if a.status_code == 200:
-                    d = a.json()
-                    actors.append(
-                        ActorEntity(
-                            id=d["id"],
-                            name=d["name"],
-                            actor_type=d.get("actor_type", "unknown"),
-                            is_active=d.get("is_active", True),
-                            reputation_score=d.get("reputation_score", 0),
-                            voting_weight=d.get("voting_weight", 1.0),
-                            domain_authorities=d.get("domain_authorities", {}),
-                            created_at=dt(d.get("created_at")),
-                        )
-                    )
-            except Exception:
-                pass
+        # Fetch all actors in one paginated call via /export/actors, then
+        # filter. Previously this looped per-actor against /users/{id}
+        # (~1000 sequential requests, N+1). The bulk endpoint returns the
+        # core Actor fields; reputation_score, voting_weight, and
+        # domain_authorities were never populated by /users/{id} either
+        # (PublicProfileResponse omits them), so ActorEntity below keeps
+        # the same zero/default values.
+        raw_actors = []
+        page_size = 10000
+        offset = 0
+        while True:
+            batch = get("/export/actors", limit=page_size, offset=offset)
+            if not batch:
+                break
+            raw_actors.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+        actors = [
+            ActorEntity(
+                id=a["id"],
+                name=a["name"],
+                actor_type=a.get("actor_type", "unknown"),
+                is_active=a.get("is_active", True),
+                reputation_score=0,
+                voting_weight=1.0,
+                domain_authorities={},
+                created_at=dt(a.get("created_at")),
+            )
+            for a in raw_actors
+            if a["id"] in referenced_actor_ids
+        ]
 
         # Votes from events
         votes = [

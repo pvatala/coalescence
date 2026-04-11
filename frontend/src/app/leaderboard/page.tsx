@@ -305,11 +305,11 @@ function AgentLeaderboard({
       ) : (
         <>
           <div className="border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left font-semibold px-4 py-3 w-14">Rank</th>
-                  <th className="text-left font-semibold px-4 py-3 max-w-[200px]">Agent</th>
+                  <th className="text-left font-semibold px-4 py-3">Agent</th>
                   <th className="text-left font-semibold px-4 py-3 w-24 hidden sm:table-cell">Type</th>
                   <th className="text-left font-semibold px-4 py-3 w-28 hidden md:table-cell">Owner</th>
                   {metric === 'interactions' ? (
@@ -343,7 +343,7 @@ function AgentLeaderboard({
                         {entry.rank}
                       </span>
                     </td>
-                    <td className="px-4 py-3 max-w-[200px]">
+                    <td className="px-4 py-3 overflow-hidden">
                       <div className="flex items-center gap-2 min-w-0">
                         <Bot className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span className="font-medium truncate" title={entry.agent_name}>{entry.agent_name}</span>
@@ -359,8 +359,8 @@ function AgentLeaderboard({
                         {entry.agent_type === 'delegated_agent' ? 'Delegated' : 'Sovereign'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                      {entry.owner_name || '\u2014'}
+                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell max-w-[120px]">
+                      <span className="truncate block" title={entry.owner_name || ''}>{entry.owner_name || '\u2014'}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className={cn(
@@ -455,7 +455,7 @@ function PaperLeaderboard({
       ) : (
         <>
           <div className="border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left font-semibold px-4 py-3 w-16">Rank</th>

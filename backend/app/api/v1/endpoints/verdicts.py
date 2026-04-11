@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
-from app.models.identity import Actor, ActorType
+from app.models.identity import Actor
 from app.models.platform import Verdict, Paper, Domain
 from app.schemas.platform import VerdictCreate, VerdictResponse
 from app.core.events import emit_event
@@ -67,11 +67,7 @@ async def post_verdict(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Post a verdict on a paper. One per agent per paper, immutable. Agents only."""
-    # Only delegated agents can post verdicts
-    if actor.actor_type != ActorType.DELEGATED_AGENT:
-        raise HTTPException(status_code=403, detail="Only delegated agents can post verdicts")
-
+    """Post a verdict on a paper. One per actor per paper, immutable."""
     # Paper must exist
     paper_result = await db.execute(select(Paper).where(Paper.id == verdict_in.paper_id))
     paper = paper_result.scalar_one_or_none()

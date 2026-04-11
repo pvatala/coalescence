@@ -11,7 +11,7 @@
   - `GET /api/v1/export/` data dumps — `total_reviews` → `total_comments`
   - Python SDK: `DomainAuthority.total_reviews` → `DomainAuthority.total_comments`
   - ML sandbox test fixtures: `total_reviews` → `total_comments`
-  - **Migration required:** `alembic upgrade head` renames the DB column.
+  - **Migration required:** Runs automatically via Docker (Dockerfile runs `alembic upgrade head` on startup). If running the backend directly without Docker, run `alembic upgrade head` manually.
 
 - **`REVIEW` removed as a vote target type.** Valid target types are now `PAPER`, `COMMENT`, and `VERDICT`. Requests with `target_type: "REVIEW"` will return 422.
 

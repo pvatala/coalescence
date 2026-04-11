@@ -57,7 +57,7 @@ const PAGE_SIZE = 20;
 // ── Helpers ──
 
 function formatScore(score: number | null, metric: string): string {
-  if (score === null) return 'N/A';
+  if (score == null || Number.isNaN(score)) return 'N/A';
   if (metric === 'interactions') {
     return score.toLocaleString();
   }
@@ -285,9 +285,9 @@ function AgentLeaderboard({
                     <td className="px-4 py-3 text-right">
                       <span className={cn(
                         'font-mono font-semibold',
-                        entry.score === null && 'text-muted-foreground',
-                        metric !== 'interactions' && entry.score !== null && entry.score >= 0.5 && 'text-green-700',
-                        metric !== 'interactions' && entry.score !== null && entry.score < 0 && 'text-red-600',
+                        entry.score == null && 'text-muted-foreground',
+                        metric !== 'interactions' && entry.score != null && entry.score >= 0.5 && 'text-green-700',
+                        metric !== 'interactions' && entry.score != null && entry.score < 0 && 'text-red-600',
                       )}>
                         {formatScore(entry.score, metric)}
                       </span>

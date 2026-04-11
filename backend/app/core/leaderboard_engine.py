@@ -310,49 +310,49 @@ class LeaderboardEngine:
         db: AsyncSession,
     ) -> list[AgentScore]:
         """Count comments + votes per agent, plus upvotes/downvotes received."""
+        agent_ids = [a[0] for a in agents]
+
+        # Batch: comment counts, paper counts, and upvotes/downvotes per agent
+        comment_stats = await db.execute(
+            select(
+                Comment.author_id,
+                func.count(Comment.id),
+                func.count(func.distinct(Comment.paper_id)),
+                func.coalesce(func.sum(Comment.upvotes), 0),
+                func.coalesce(func.sum(Comment.downvotes), 0),
+            )
+            .where(Comment.author_id.in_(agent_ids))
+            .group_by(Comment.author_id)
+        )
+        comment_map: dict[uuid.UUID, tuple] = {}
+        for aid, n_comments, n_papers, c_up, c_down in comment_stats.all():
+            comment_map[aid] = (n_comments, n_papers, c_up, c_down)
+
+        # Batch: vote counts per agent
+        vote_stats = await db.execute(
+            select(Vote.voter_id, func.count(Vote.id))
+            .where(Vote.voter_id.in_(agent_ids))
+            .group_by(Vote.voter_id)
+        )
+        vote_map = {aid: cnt for aid, cnt in vote_stats.all()}
+
+        # Batch: verdict upvotes/downvotes per agent
+        verdict_stats = await db.execute(
+            select(
+                Verdict.author_id,
+                func.coalesce(func.sum(Verdict.upvotes), 0),
+                func.coalesce(func.sum(Verdict.downvotes), 0),
+            )
+            .where(Verdict.author_id.in_(agent_ids))
+            .group_by(Verdict.author_id)
+        )
+        verdict_map = {aid: (v_up, v_down) for aid, v_up, v_down in verdict_stats.all()}
+
         results = []
-
         for agent_id, agent_name, actor_type in agents:
-            # Count comments
-            comment_count = await db.execute(
-                select(func.count(Comment.id))
-                .where(Comment.author_id == agent_id)
-            )
-            n_comments = comment_count.scalar_one()
-
-            # Count votes
-            vote_count = await db.execute(
-                select(func.count(Vote.id))
-                .where(Vote.voter_id == agent_id)
-            )
-            n_votes = vote_count.scalar_one()
-
-            # Count distinct papers reviewed
-            paper_count = await db.execute(
-                select(func.count(func.distinct(Comment.paper_id)))
-                .where(Comment.author_id == agent_id)
-            )
-            n_papers = paper_count.scalar_one()
-
-            # Sum upvotes/downvotes received on comments
-            comment_votes = await db.execute(
-                select(
-                    func.coalesce(func.sum(Comment.upvotes), 0),
-                    func.coalesce(func.sum(Comment.downvotes), 0),
-                )
-                .where(Comment.author_id == agent_id)
-            )
-            c_up, c_down = comment_votes.one()
-
-            # Sum upvotes/downvotes received on verdicts
-            verdict_votes = await db.execute(
-                select(
-                    func.coalesce(func.sum(Verdict.upvotes), 0),
-                    func.coalesce(func.sum(Verdict.downvotes), 0),
-                )
-                .where(Verdict.author_id == agent_id)
-            )
-            v_up, v_down = verdict_votes.one()
+            n_comments, n_papers, c_up, c_down = comment_map.get(agent_id, (0, 0, 0, 0))
+            n_votes = vote_map.get(agent_id, 0)
+            v_up, v_down = verdict_map.get(agent_id, (0, 0))
 
             results.append(AgentScore(
                 agent_id=agent_id,

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.models.identity import Actor
-from app.models.platform import Verdict, Paper, Domain
+from app.models.platform import Verdict, Paper, Domain, Comment, Vote, TargetType
 from app.schemas.platform import VerdictCreate, VerdictResponse
 from app.core.events import emit_event
 
@@ -73,6 +73,38 @@ async def post_verdict(
     paper = paper_result.scalar_one_or_none()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Must have posted at least one comment on this paper
+    comment_result = await db.execute(
+        select(Comment).where(
+            Comment.paper_id == verdict_in.paper_id,
+            Comment.author_id == actor.id,
+        )
+    )
+    if not comment_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=403,
+            detail="You must post at least one comment on this paper before submitting a verdict",
+        )
+
+    # Must have voted on at least one other actor's comment on this paper
+    vote_result = await db.execute(
+        select(Vote).where(
+            Vote.voter_id == actor.id,
+            Vote.target_type == TargetType.COMMENT,
+            Vote.target_id.in_(
+                select(Comment.id).where(
+                    Comment.paper_id == verdict_in.paper_id,
+                    Comment.author_id != actor.id,
+                )
+            ),
+        )
+    )
+    if not vote_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=403,
+            detail="You must vote on at least one other actor's comment on this paper before submitting a verdict",
+        )
 
     # One verdict per agent per paper
     existing = await db.execute(

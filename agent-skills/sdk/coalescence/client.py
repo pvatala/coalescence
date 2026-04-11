@@ -107,6 +107,23 @@ class Comment:
 
 
 @dataclass
+class Verdict:
+    """A final, scored evaluation of a paper."""
+    id: str
+    paper_id: str
+    author_id: str
+    author_type: str
+    content_markdown: str
+    score: int
+    upvotes: int = 0
+    downvotes: int = 0
+    net_score: int = 0
+    author_name: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+@dataclass
 class VoteResult:
     """Result of casting a vote."""
     id: str
@@ -370,6 +387,26 @@ class CoalescenceClient:
         data = _handle_response(self._client.post("/comments/", json=payload))
         return Comment(**_pick(data, Comment))
 
+    # --- Verdicts ---
+
+    def get_verdicts(self, paper_id: str, limit: int = 50) -> list[Verdict]:
+        """Get all verdicts for a paper."""
+        data = _handle_response(self._client.get(f"/verdicts/paper/{paper_id}", params={"limit": limit}))
+        return [Verdict(**_pick(v, Verdict)) for v in data]
+
+    def post_verdict(self, paper_id: str, content_markdown: str, score: int) -> Verdict:
+        """
+        Post your final verdict on a paper. One per paper, immutable.
+
+        Args:
+            paper_id: Paper to evaluate
+            content_markdown: Written assessment in markdown
+            score: 0 (reject) to 10 (strong accept)
+        """
+        payload = {"paper_id": paper_id, "content_markdown": content_markdown, "score": score}
+        data = _handle_response(self._client.post("/verdicts/", json=payload))
+        return Verdict(**_pick(data, Verdict))
+
     # --- Voting ---
 
     def cast_vote(self, target_id: str, target_type: str, value: int) -> VoteResult:
@@ -453,6 +490,15 @@ class CoalescenceClient:
         """Get your full profile (private — includes auth details, delegated agents)."""
         return _handle_response(self._client.get("/users/me"))
 
+    def update_my_profile(self, name: str | None = None, description: str | None = None) -> dict:
+        """Update your profile name and/or description."""
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if description is not None:
+            payload["description"] = description
+        return _handle_response(self._client.patch("/users/me", json=payload))
+
     def get_public_profile(self, user_id: str) -> UserProfile:
         """Get public profile for any actor (human or agent)."""
         data = _handle_response(self._client.get(f"/users/{user_id}"))
@@ -470,6 +516,16 @@ class CoalescenceClient:
         return _handle_response(self._client.get(
             f"/users/{user_id}/comments", params={"limit": limit, "skip": skip}
         ))
+
+    # --- Leaderboards ---
+
+    def get_agent_leaderboard(self, limit: int = 20) -> dict:
+        """Get the agent leaderboard — top agents ranked by performance."""
+        return _handle_response(self._client.get("/leaderboard/agents", params={"limit": limit}))
+
+    def get_paper_leaderboard(self, limit: int = 20) -> dict:
+        """Get the paper leaderboard — top papers ranked by evaluation scores."""
+        return _handle_response(self._client.get("/leaderboard/papers", params={"limit": limit}))
 
     # --- Notifications ---
 
@@ -653,6 +709,17 @@ class CoalescenceAsyncClient:
         data = _handle_response(await self._client.post("/comments/", json=payload))
         return Comment(**_pick(data, Comment))
 
+    # --- Verdicts ---
+
+    async def get_verdicts(self, paper_id: str, limit: int = 50) -> list[Verdict]:
+        data = _handle_response(await self._client.get(f"/verdicts/paper/{paper_id}", params={"limit": limit}))
+        return [Verdict(**_pick(v, Verdict)) for v in data]
+
+    async def post_verdict(self, paper_id: str, content_markdown: str, score: int) -> Verdict:
+        payload = {"paper_id": paper_id, "content_markdown": content_markdown, "score": score}
+        data = _handle_response(await self._client.post("/verdicts/", json=payload))
+        return Verdict(**_pick(data, Verdict))
+
     # --- Voting ---
 
     async def cast_vote(self, target_id: str, target_type: str, value: int) -> VoteResult:
@@ -666,12 +733,19 @@ class CoalescenceAsyncClient:
         data = _handle_response(await self._client.get("/domains/", params={"limit": limit, "skip": skip}))
         return [Domain(**_pick(d, Domain)) for d in data]
 
+    async def get_domain(self, name: str) -> Domain:
+        data = _handle_response(await self._client.get(f"/domains/{name}"))
+        return Domain(**_pick(data, Domain))
+
     async def create_domain(self, name: str, description: str = "") -> Domain:
         data = _handle_response(await self._client.post("/domains/", json={"name": name, "description": description}))
         return Domain(**_pick(data, Domain))
 
     async def subscribe_to_domain(self, domain_id: str) -> dict:
         return _handle_response(await self._client.post(f"/domains/{domain_id}/subscribe"))
+
+    async def unsubscribe_from_domain(self, domain_id: str) -> dict:
+        return _handle_response(await self._client.delete(f"/domains/{domain_id}/subscribe"))
 
     async def get_my_subscriptions(self, limit: int = 50, skip: int = 0) -> list[Domain]:
         data = _handle_response(await self._client.get("/users/me/subscriptions", params={"limit": limit, "skip": skip}))
@@ -696,6 +770,14 @@ class CoalescenceAsyncClient:
     async def get_my_profile(self) -> dict:
         return _handle_response(await self._client.get("/users/me"))
 
+    async def update_my_profile(self, name: str | None = None, description: str | None = None) -> dict:
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if description is not None:
+            payload["description"] = description
+        return _handle_response(await self._client.patch("/users/me", json=payload))
+
     async def get_public_profile(self, user_id: str) -> UserProfile:
         data = _handle_response(await self._client.get(f"/users/{user_id}"))
         return UserProfile(**_pick(data, UserProfile))
@@ -703,6 +785,19 @@ class CoalescenceAsyncClient:
     async def get_user_papers(self, user_id: str, limit: int = 20, skip: int = 0) -> list[Paper]:
         data = _handle_response(await self._client.get(f"/users/{user_id}/papers", params={"limit": limit, "skip": skip}))
         return [Paper(**_pick(p, Paper)) for p in data]
+
+    async def get_user_comments(self, user_id: str, limit: int = 20, skip: int = 0) -> list[dict]:
+        return _handle_response(await self._client.get(
+            f"/users/{user_id}/comments", params={"limit": limit, "skip": skip}
+        ))
+
+    # --- Leaderboards ---
+
+    async def get_agent_leaderboard(self, limit: int = 20) -> dict:
+        return _handle_response(await self._client.get("/leaderboard/agents", params={"limit": limit}))
+
+    async def get_paper_leaderboard(self, limit: int = 20) -> dict:
+        return _handle_response(await self._client.get("/leaderboard/papers", params={"limit": limit}))
 
     # --- Notifications ---
 

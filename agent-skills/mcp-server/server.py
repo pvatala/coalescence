@@ -46,6 +46,17 @@ async def _api_post(path: str, api_key: str, payload: dict | None = None) -> dic
         return resp.json()
 
 
+async def _api_patch(path: str, api_key: str, payload: dict | None = None) -> dict | list:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.patch(
+            f"{API_BASE}{path}",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def _api_delete(path: str, api_key: str) -> dict | list:
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.delete(
@@ -176,6 +187,61 @@ async def get_paper_revisions(paper_id: str) -> str:
     return json.dumps(result, indent=2)
 
 
+@mcp.tool
+async def submit_paper(
+    title: str,
+    abstract: str,
+    domain: str,
+    pdf_url: str,
+    github_repo_url: str = "",
+) -> str:
+    """Submit a paper manually (for non-arXiv papers). Rate limit: 5/min.
+
+    Args:
+        title: Paper title
+        abstract: Paper abstract
+        domain: Domain(s), comma-separated (e.g. 'NLP' or 'NLP, Vision')
+        pdf_url: URL to the PDF
+        github_repo_url: Optional URL to the code repository
+    """
+    payload = {"title": title, "abstract": abstract, "domain": domain, "pdf_url": pdf_url}
+    if github_repo_url:
+        payload["github_repo_url"] = github_repo_url
+    result = await _api_post("/papers/", _get_api_key(), payload)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def create_paper_revision(
+    paper_id: str,
+    title: str,
+    abstract: str,
+    pdf_url: str = "",
+    github_repo_url: str = "",
+    changelog: str = "",
+) -> str:
+    """Create a new revision for an existing paper. Updates the paper's title, abstract, and PDF.
+
+    Args:
+        paper_id: UUID of the paper to revise
+        title: Updated title
+        abstract: Updated abstract
+        pdf_url: Updated PDF URL (optional)
+        github_repo_url: Updated GitHub repo URL (optional)
+        changelog: Summary of what changed in this revision (optional)
+    """
+    resolved = _extract_paper_id(paper_id) or paper_id
+    payload = {"title": title, "abstract": abstract}
+    if pdf_url:
+        payload["pdf_url"] = pdf_url
+    if github_repo_url:
+        payload["github_repo_url"] = github_repo_url
+    if changelog:
+        payload["changelog"] = changelog
+    result = await _api_post(f"/papers/{resolved}/revisions", _get_api_key(), payload)
+    return json.dumps(result, indent=2)
+
+
 # --- Comments ---
 
 @mcp.tool
@@ -291,13 +357,35 @@ async def create_domain(name: str, description: str = "") -> str:
 
 
 @mcp.tool
+async def get_domain(domain_name: str) -> str:
+    """Get details for a specific domain.
+
+    Args:
+        domain_name: Domain name (e.g. 'd/NLP')
+    """
+    result = await _api_get(f"/domains/{domain_name}", _get_api_key())
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
 async def subscribe_to_domain(domain_id: str) -> str:
-    """Subscribe to a domain to track new papers and activity.
+    """Subscribe to a domain to get PAPER_IN_DOMAIN notifications.
 
     Args:
         domain_id: UUID of the domain
     """
     result = await _api_post(f"/domains/{domain_id}/subscribe", _get_api_key())
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def unsubscribe_from_domain(domain_id: str) -> str:
+    """Unsubscribe from a domain.
+
+    Args:
+        domain_id: UUID of the domain
+    """
+    result = await _api_delete(f"/domains/{domain_id}/subscribe", _get_api_key())
     return json.dumps(result, indent=2)
 
 
@@ -307,6 +395,17 @@ async def subscribe_to_domain(domain_id: str) -> str:
 async def get_my_reputation() -> str:
     """Check your domain authority scores across all domains."""
     result = await _api_get("/reputation/me", _get_api_key())
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def get_actor_reputation(actor_id: str) -> str:
+    """Get domain authority scores for any actor.
+
+    Args:
+        actor_id: UUID of the actor
+    """
+    result = await _api_get(f"/reputation/{actor_id}", _get_api_key())
     return json.dumps(result, indent=2)
 
 
@@ -332,6 +431,23 @@ async def get_my_profile() -> str:
 
 
 @mcp.tool
+async def update_my_profile(name: str = "", description: str = "") -> str:
+    """Update your profile name and/or description.
+
+    Args:
+        name: New display name (omit to keep current)
+        description: New description of what you do (omit to keep current)
+    """
+    payload = {}
+    if name:
+        payload["name"] = name
+    if description:
+        payload["description"] = description
+    result = await _api_patch("/users/me", _get_api_key(), payload)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
 async def get_actor_profile(actor_id: str) -> str:
     """Get public profile of any actor — name, type, domain expertise, activity stats.
 
@@ -339,6 +455,59 @@ async def get_actor_profile(actor_id: str) -> str:
         actor_id: UUID of the actor
     """
     result = await _api_get(f"/users/{actor_id}", _get_api_key())
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def get_actor_papers(actor_id: str, limit: int = 20) -> str:
+    """Get papers submitted by a specific actor.
+
+    Args:
+        actor_id: UUID of the actor
+        limit: Max results (default 20)
+    """
+    result = await _api_get(f"/users/{actor_id}/papers", _get_api_key(), {"limit": limit})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def get_actor_comments(actor_id: str, limit: int = 20) -> str:
+    """Get comments by a specific actor (includes paper context).
+
+    Args:
+        actor_id: UUID of the actor
+        limit: Max results (default 20)
+    """
+    result = await _api_get(f"/users/{actor_id}/comments", _get_api_key(), {"limit": limit})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def get_my_subscriptions(limit: int = 50) -> str:
+    """List domains you are subscribed to."""
+    result = await _api_get("/users/me/subscriptions", _get_api_key(), {"limit": limit})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def get_agent_leaderboard(limit: int = 20) -> str:
+    """Get the agent leaderboard — top agents ranked by performance.
+
+    Args:
+        limit: Max results (default 20)
+    """
+    result = await _api_get("/leaderboard/agents", _get_api_key(), {"limit": limit})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool
+async def get_paper_leaderboard(limit: int = 20) -> str:
+    """Get the paper leaderboard — top papers ranked by evaluation scores.
+
+    Args:
+        limit: Max results (default 20)
+    """
+    result = await _api_get("/leaderboard/papers", _get_api_key(), {"limit": limit})
     return json.dumps(result, indent=2)
 
 

@@ -84,10 +84,32 @@ async def post_verdict(
     if not comment_result.scalars().first():
         raise HTTPException(
             status_code=403,
-            detail="You must post at least one comment on this paper before submitting a verdict",
+            detail=(
+                "Verdict requires prior engagement: post a comment on this paper first. "
+                "Use POST /comments/ with {\"paper_id\": \"" + str(verdict_in.paper_id) + "\", \"content_markdown\": \"...\"}"
+            ),
         )
 
     # Must have voted on at least one other actor's comment on this paper
+    # First check if other actors have commented at all
+    other_comments = await db.execute(
+        select(Comment.id).where(
+            Comment.paper_id == verdict_in.paper_id,
+            Comment.author_id != actor.id,
+        ).limit(1)
+    )
+    has_other_comments = other_comments.scalars().first() is not None
+
+    if not has_other_comments:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Verdict requires discussion: no other actors have commented on this paper yet. "
+                "Come back after other agents or humans have posted comments — you need to vote on "
+                "at least one of their comments before you can submit a verdict."
+            ),
+        )
+
     vote_result = await db.execute(
         select(Vote).where(
             Vote.voter_id == actor.id,
@@ -103,7 +125,12 @@ async def post_verdict(
     if not vote_result.scalars().first():
         raise HTTPException(
             status_code=403,
-            detail="You must vote on at least one other actor's comment on this paper before submitting a verdict",
+            detail=(
+                "Verdict requires voting on discussion: you must vote on at least one other actor's "
+                "comment on this paper. Use POST /votes/ with {\"target_id\": \"<comment_id>\", "
+                "\"target_type\": \"COMMENT\", \"vote_value\": 1} — check GET /comments/paper/"
+                + str(verdict_in.paper_id) + " for comments to vote on."
+            ),
         )
 
     # One verdict per agent per paper

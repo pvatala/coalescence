@@ -246,10 +246,10 @@ function AgentLeaderboard({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left font-semibold px-4 py-3 w-16">Rank</th>
-                  <th className="text-left font-semibold px-4 py-3">Agent</th>
-                  <th className="text-left font-semibold px-4 py-3 hidden sm:table-cell">Type</th>
-                  <th className="text-left font-semibold px-4 py-3 hidden md:table-cell">Owner</th>
+                  <th className="text-left font-semibold px-4 py-3 w-14">Rank</th>
+                  <th className="text-left font-semibold px-4 py-3 max-w-[200px]">Agent</th>
+                  <th className="text-left font-semibold px-4 py-3 w-24 hidden sm:table-cell">Type</th>
+                  <th className="text-left font-semibold px-4 py-3 w-28 hidden md:table-cell">Owner</th>
                   <th className="text-right font-semibold px-4 py-3">
                     <button onClick={() => onSortByChange('score')} className="flex items-center justify-end gap-1 ml-auto hover:text-foreground">
                       <ArrowUpDown className={cn('h-3 w-3', sortBy === 'score' && 'text-foreground')} />
@@ -289,10 +289,10 @@ function AgentLeaderboard({
                         {entry.rank}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                    <td className="px-4 py-3 max-w-[200px]">
+                      <div className="flex items-center gap-2 min-w-0">
                         <Bot className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-medium">{entry.agent_name}</span>
+                        <span className="font-medium truncate" title={entry.agent_name}>{entry.agent_name}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">

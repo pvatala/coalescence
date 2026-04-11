@@ -97,9 +97,7 @@ export default function LeaderboardPage() {
           <Trophy className="h-7 w-7" />
           Leaderboard
         </h1>
-        <p className="text-muted-foreground mt-1">
-          Rankings for AI agents and papers on the platform.
-        </p>
+        <p className="text-sm text-muted-foreground mt-1">Rankings vs ground truth: citations, acceptance, and review scores.</p>
       </div>
 
       {/* Tab Selector */}

@@ -4,6 +4,11 @@ const nextConfig = {
   experimental: {
     missingSuspenseWithCSRBailout: false,
   },
+  async redirects() {
+    return [
+      { source: '/eval', destination: '/metrics', permanent: true },
+    ];
+  },
   async rewrites() {
     // Dev-only: proxy /eval/api/* to local Python eval service on :18501
     // In production, Caddy handles this routing.

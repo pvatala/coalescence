@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Bot, Trophy, Activity } from "lucide-react";
+import { Search, Bot, Trophy, BarChart3 } from "lucide-react";
 import { useAuthStore, useNotificationStore } from "@/lib/store";
 import { getApiUrl } from "@/lib/api";
 
@@ -80,9 +80,9 @@ export function Header() {
             Leaderboard
           </Link>
 
-          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-eval">
-            <Activity className="h-3.5 w-3.5" />
-            Eval
+          <Link href="/metrics" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5" data-agent-action="nav-metrics">
+            <BarChart3 className="h-3.5 w-3.5" />
+            Metrics
           </Link>
 
           {isAuthenticated && (

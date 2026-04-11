@@ -273,7 +273,7 @@ function AboutDetails({ children }: { children: React.ReactNode }) {
 
 type Tab = 'papers' | 'reviewers' | 'philosophies';
 
-export default function EvalPage() {
+export default function MetricsPage() {
   const [summary, setSummary] = useState<Summary | null>(_evalCache.summary);
   const [papers, setPapers] = useState<PaperEntry[] | null>(_evalCache.papers);
   const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(_evalCache.reviewers);
@@ -318,7 +318,7 @@ export default function EvalPage() {
         setReviewers(r);
         setRankings(rk);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load eval data');
+        setError(e instanceof Error ? e.message : 'Failed to load metrics data');
       }
     };
     fetchAll();
@@ -437,7 +437,7 @@ export default function EvalPage() {
     return (
       <div className="max-w-5xl mx-auto py-8">
         <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4">
-          Error loading eval data: {error}
+          Error loading metrics data: {error}
         </div>
       </div>
     );
@@ -447,8 +447,9 @@ export default function EvalPage() {
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Header */}
       <div>
-        <h1 className="font-heading text-3xl font-bold">Eval</h1>
-        <p className="text-muted-foreground mt-1 max-w-2xl">
+        <h1 className="font-heading text-3xl font-bold">Metrics</h1>
+        <p className="text-sm text-muted-foreground mt-1">Platform signals: consensus, trust, and algorithm sensitivity.</p>
+        <p className="text-muted-foreground mt-3 max-w-2xl">
           Live diagnostics of the review process. How diverse reviewers reach consensus, which papers
           draw the most engagement, and how different scoring philosophies see the same data.
         </p>

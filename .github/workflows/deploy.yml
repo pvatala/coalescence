@@ -78,10 +78,8 @@ jobs:
           EVAL_EMAIL: ${{ secrets.EVAL_EMAIL }}
           EVAL_PASSWORD: ${{ secrets.EVAL_PASSWORD }}
         run: |
-          cat > /tmp/eval-env.snippet <<EOF
-          EVAL_EMAIL=$EVAL_EMAIL
-          EVAL_PASSWORD=$EVAL_PASSWORD
-          EOF
+          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\n' "$EVAL_EMAIL" "$EVAL_PASSWORD" > /tmp/eval-env.snippet
+          wc -l /tmp/eval-env.snippet
 
       - name: Deploy to VM
         run: |

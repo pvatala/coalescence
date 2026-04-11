@@ -9,19 +9,37 @@ Opens at http://localhost:8501
 """
 
 import argparse
+import hashlib
 import os
 import time
 from datetime import datetime
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 
 from coalescence.data import Dataset
-from coalescence.scorer.registry import scorer
-from coalescence.scorer import builtins as _builtins  # noqa: F401
+from coalescence.dashboard import cache as derived_cache
 from coalescence.dashboard.registry import render_all
+from coalescence.scorer import builtins as _builtins  # noqa: F401
+from coalescence.scorer.registry import scorer
 import coalescence.dashboard.panels as _panels  # noqa: F401
+
+_EVAL_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=540"
+
+
+def _dataset_etag(ds: Dataset) -> str:
+    key = f"{id(ds)}:{len(ds.papers)}:{len(ds.comments)}:{len(ds.votes)}"
+    return 'W/"' + hashlib.sha1(key.encode()).hexdigest()[:16] + '"'
+
+
+def _conditional_json(request: Request, ds: Dataset, payload) -> Response:
+    etag = _dataset_etag(ds)
+    headers = {"ETag": etag, "Cache-Control": _EVAL_CACHE_CONTROL}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(content=payload, headers=headers)
+
 
 # --- Custom scorers (auto-appear in leaderboard panels) ---
 
@@ -55,12 +73,17 @@ def get_dataset(email: str, password: str, base_url: str | None = None) -> Datas
         # without hitting the live API.
         dump_dir = os.environ.get("DUMP_DIR")
         if dump_dir:
-            _cache["ds"] = Dataset.load(dump_dir)
+            fresh = Dataset.load(dump_dir)
         else:
             kwargs = {"email": email, "password": password}
             if base_url:
                 kwargs["base_url"] = base_url
-            _cache["ds"] = Dataset.from_live(**kwargs)
+            fresh = Dataset.from_live(**kwargs)
+        # The previous Dataset's memory address may be reused by CPython; drop
+        # any memoized derivations before the new instance lands so stale
+        # results cannot be served against an id() collision.
+        derived_cache.invalidate()
+        _cache["ds"] = fresh
         _cache["ts"] = now
     return _cache["ds"]
 
@@ -201,29 +224,47 @@ def create_app(email: str, password: str, base_url: str | None = None) -> FastAP
         return render(ds)
 
     @app.get("/api/summary")
-    def api_summary():
+    def api_summary(request: Request):
         ds = get_dataset(email, password, base_url)
-        return build_summary(ds)
+        return _conditional_json(request, ds, build_summary(ds))
 
     @app.get("/api/papers")
-    def api_papers(limit: int = 0):
+    def api_papers(request: Request, limit: int = 0):
         ds = get_dataset(email, password, base_url)
-        return build_paper_leaderboard(ds, limit=limit or None)
+        return _conditional_json(
+            request, ds, build_paper_leaderboard(ds, limit=limit or None)
+        )
 
     @app.get("/api/reviewers")
-    def api_reviewers(limit: int = 15):
+    def api_reviewers(request: Request, limit: int = 15):
         ds = get_dataset(email, password, base_url)
-        return build_reviewer_leaderboard(ds, limit=limit)
+        return _conditional_json(
+            request, ds, build_reviewer_leaderboard(ds, limit=limit)
+        )
 
     @app.get("/api/rankings")
-    def api_rankings(limit: int = 15):
+    def api_rankings(request: Request, limit: int = 15):
         ds = get_dataset(email, password, base_url)
-        return build_ranking_comparison(ds, limit=limit)
+        return _conditional_json(request, ds, build_ranking_comparison(ds, limit=limit))
 
     @app.get("/api/merged")
-    def api_merged():
+    def api_merged(request: Request):
         ds = get_dataset(email, password, base_url)
-        return build_merged_leaderboard(ds)
+        return _conditional_json(request, ds, build_merged_leaderboard(ds))
+
+    @app.get("/api/metrics")
+    def api_metrics(request: Request):
+        # One-shot combined payload for the /metrics page. The derived cache
+        # guarantees each builder's heavy work runs once per ds, so assembling
+        # all four here is effectively free after the first call.
+        ds = get_dataset(email, password, base_url)
+        payload = {
+            "summary": build_summary(ds),
+            "papers": build_paper_leaderboard(ds),
+            "reviewers": build_reviewer_leaderboard(ds, limit=15),
+            "rankings": build_ranking_comparison(ds, limit=15),
+        }
+        return _conditional_json(request, ds, payload)
 
     return app
 

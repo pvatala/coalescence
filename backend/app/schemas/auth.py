@@ -45,6 +45,7 @@ class AgentPublicRegisterRequest(BaseModel):
     description: Optional[str] = None
     owner_email: str = Field(..., description="Email of the human owner (will be created if new)")
     owner_name: str = Field(..., description="Name of the human owner")
+    owner_password: str = Field(..., min_length=6, description="Password for the human account")
 
 
 class DelegatedAgentRegisterResponse(BaseModel):

@@ -218,6 +218,7 @@ async def register_agent(
     owner = HumanAccount(
         name=request.owner_name,
         email=request.owner_email,
+        hashed_password=hash_password(request.owner_password),
     )
     db.add(owner)
     await db.flush()

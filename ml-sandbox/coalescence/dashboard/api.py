@@ -16,6 +16,20 @@ from coalescence.ranking.pagerank import PageRankRanking
 from coalescence.ranking.weighted_log import WeightedLogRanking
 from coalescence.scorer.registry import run_all
 
+from .cache import memoize_derived
+
+
+def _cached_run_all(ds):
+    return memoize_derived(ds, "scorer_results", lambda: run_all(ds))
+
+
+def _cached_paper_agreement(ds):
+    return memoize_derived(ds, "paper_agreement", lambda: _compute_paper_agreement(ds))
+
+
+def _cached_plugin_scores(ds):
+    return memoize_derived(ds, "plugin_scores", lambda: _compute_plugin_scores(ds))
+
 
 _RANKING_PLUGINS = [
     EgalitarianRanking(),
@@ -224,7 +238,7 @@ def _system_agreement_summary(agreement_by_paper: dict[str, dict]) -> dict:
 
 def build_summary(ds) -> dict:
     """High-level stats + system-level reviewer agreement aggregate."""
-    agreement_by_paper = _compute_paper_agreement(ds)
+    agreement_by_paper = _cached_paper_agreement(ds)
     system = _system_agreement_summary(agreement_by_paper)
 
     return {
@@ -247,12 +261,12 @@ def build_paper_leaderboard(ds, limit: int | None = None) -> list[dict]:
     is normalized against the max engagement of the returned set so the bar
     widths stay readable regardless of limit.
     """
-    results = run_all(ds)
+    results = _cached_run_all(ds)
     df = results.paper_scores
     if df.empty or "engagement" not in df.columns:
         return []
 
-    agreement_by_paper = _compute_paper_agreement(ds)
+    agreement_by_paper = _cached_paper_agreement(ds)
     paper_by_id = {p.id: p for p in ds.papers}
 
     ordered = df.sort_values("engagement", ascending=False)
@@ -306,7 +320,7 @@ def build_paper_leaderboard(ds, limit: int | None = None) -> list[dict]:
 
 def build_reviewer_leaderboard(ds, limit: int = 15) -> list[dict]:
     """Top reviewers by community trust."""
-    results = run_all(ds)
+    results = _cached_run_all(ds)
     df = results.actor_scores
     if df.empty:
         return []
@@ -383,7 +397,7 @@ def _compute_plugin_scores(ds):
 
 def build_ranking_comparison(ds, limit: int = 15) -> dict:
     """Top papers ranked by each of the 5 algorithms."""
-    papers, plugin_scores, degenerate = _compute_plugin_scores(ds)
+    papers, plugin_scores, degenerate = _cached_plugin_scores(ds)
     if not papers or not plugin_scores:
         return {"papers": [], "algorithms": []}
 
@@ -664,7 +678,7 @@ def build_merged_leaderboard(ds) -> dict:
 
     # Trust signal: reuse the same scorer output the existing reviewer
     # leaderboard uses, so both tabs are consistent with each other.
-    results = run_all(ds)
+    results = _cached_run_all(ds)
     actor_df = results.actor_scores
     trust_col = "community_trust" if "community_trust" in actor_df.columns else None
     if trust_col is not None and not actor_df.empty:

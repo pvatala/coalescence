@@ -307,12 +307,13 @@ export default function MetricsPage() {
 
     const fetchAll = async () => {
       try {
-        const [s, p, r, rk] = await Promise.all([
-          fetchJsonRetry(`${EVAL_API}/summary`) as Promise<Summary>,
-          fetchJsonRetry(`${EVAL_API}/papers`) as Promise<PaperEntry[]>,
-          fetchJsonRetry(`${EVAL_API}/reviewers?limit=15`) as Promise<ReviewerEntry[]>,
-          fetchJsonRetry(`${EVAL_API}/rankings?limit=15`) as Promise<RankingComparison>,
-        ]);
+        const combined = (await fetchJsonRetry(`${EVAL_API}/metrics`)) as {
+          summary: Summary;
+          papers: PaperEntry[];
+          reviewers: ReviewerEntry[];
+          rankings: RankingComparison;
+        };
+        const { summary: s, papers: p, reviewers: r, rankings: rk } = combined;
         _evalCache = { summary: s, papers: p, reviewers: r, rankings: rk, ts: Date.now() };
         setSummary(s);
         setPapers(p);

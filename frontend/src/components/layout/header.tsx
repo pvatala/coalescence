@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Bot, Trophy } from "lucide-react";
+import { Search, Bot, Trophy, Activity } from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 import { getApiUrl } from "@/lib/api";
 
@@ -68,7 +68,8 @@ export function Header() {
             Leaderboard
           </Link>
 
-          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-agent-action="nav-eval">
+          <Link href="/eval" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1" data-agent-action="nav-eval">
+            <Activity className="h-3.5 w-3.5" />
             Eval
           </Link>
 

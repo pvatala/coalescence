@@ -2,11 +2,19 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 // ── Types ──
+
+type AgreementLabel = 'consensus' | 'leaning' | 'split' | 'unrated';
+
+interface SystemAgreement {
+  n_rated: number;
+  median_agreement: number | null;
+  label_counts: Record<AgreementLabel, number>;
+}
 
 interface Summary {
   papers: number;
@@ -14,12 +22,7 @@ interface Summary {
   votes: number;
   humans: number;
   agents: number;
-  consensus: {
-    robust: number;
-    narrow: number;
-    debated: number;
-    weak: number;
-  };
+  agreement: SystemAgreement;
 }
 
 interface PaperEntry {
@@ -34,9 +37,15 @@ interface PaperEntry {
   downvotes: number;
   n_reviews: number;
   n_votes: number;
-  diversity: number;
-  agreement: number;
-  confidence: 'robust' | 'narrow' | 'debated' | 'weak' | null;
+  n_reviewers: number;
+  agreement: number | null;
+  p_positive: number | null;
+  direction: 'positive' | 'negative' | 'split' | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  stance_source: 'explicit' | 'proxied' | 'mixed' | 'none';
+  agreement_label: AgreementLabel | null;
+  tentative: boolean;
   url: string;
 }
 
@@ -75,28 +84,86 @@ interface RankingComparison {
   total_papers: number;
 }
 
+// ── Module-scope cache (persists across navigations) ──
+
+interface EvalCache {
+  summary: Summary | null;
+  papers: PaperEntry[] | null;
+  reviewers: ReviewerEntry[] | null;
+  rankings: RankingComparison | null;
+  ts: number;
+}
+
+const CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+let _evalCache: EvalCache = {
+  summary: null,
+  papers: null,
+  reviewers: null,
+  rankings: null,
+  ts: 0,
+};
+
 // ── Helpers ──
 
 const EVAL_API = '/eval/api';
 
-const CONFIDENCE_STYLES: Record<string, string> = {
-  robust: 'bg-green-100 text-green-800 border-green-200',
-  narrow: 'bg-amber-100 text-amber-800 border-amber-200',
-  debated: 'bg-blue-100 text-blue-800 border-blue-200',
-  weak: 'bg-red-100 text-red-800 border-red-200',
+async function fetchJsonRetry(url: string, retries = 2): Promise<unknown> {
+  let lastErr: unknown;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      if (i < retries) await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+  throw lastErr;
+}
+
+const AGREEMENT_STYLES: Record<AgreementLabel, string> = {
+  consensus: 'bg-green-100 text-green-800 border-green-200',
+  leaning: 'bg-amber-100 text-amber-800 border-amber-200',
+  split: 'bg-red-100 text-red-800 border-red-200',
+  unrated: 'bg-muted text-muted-foreground border-border',
 };
 
-function ConfidenceBadge({ label }: { label: string | null }) {
-  if (!label) return <span className="text-muted-foreground">—</span>;
+function AgreementCell({ entry }: { entry: PaperEntry }) {
+  if (entry.agreement_label == null || entry.agreement == null) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+  const pct = Math.round(entry.agreement * 100);
+  const src =
+    entry.stance_source === 'explicit'
+      ? 'direct paper votes'
+      : entry.stance_source === 'proxied'
+      ? 'comment signals (proxied — weaker)'
+      : 'mixed (votes + comment signals)';
+  const tooltip =
+    `${entry.n_reviewers} reviewers, ${pct}% agreement (${entry.direction ?? ''}).\n` +
+    `Wilson 95% CI: ${entry.ci_low?.toFixed(2)} – ${entry.ci_high?.toFixed(2)}.\n` +
+    `Signal source: ${src}.` +
+    (entry.tentative ? '\nTentative: sample size too small to fully trust.' : '');
   return (
-    <span
-      className={cn(
-        'inline-block px-2 py-0.5 rounded-full text-xs font-semibold border capitalize',
-        CONFIDENCE_STYLES[label] || 'bg-muted text-muted-foreground'
-      )}
-    >
-      {label}
-    </span>
+    <div className="inline-flex flex-col items-start gap-0.5" title={tooltip}>
+      <div className="inline-flex items-center gap-1.5">
+        <span
+          className={cn(
+            'inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold border capitalize',
+            AGREEMENT_STYLES[entry.agreement_label]
+          )}
+        >
+          {entry.agreement_label}
+        </span>
+        {entry.tentative && (
+          <span className="text-[10px] text-muted-foreground italic">tentative</span>
+        )}
+      </div>
+      <span className="text-[11px] text-muted-foreground tabular-nums">
+        {pct}% · n={entry.n_reviewers}
+      </span>
+    </div>
   );
 }
 
@@ -144,6 +211,7 @@ function SortHeader<K extends string>({
   onClick,
   className,
   align = 'left',
+  tooltip,
 }: {
   label: string;
   sortKey: K;
@@ -152,19 +220,24 @@ function SortHeader<K extends string>({
   onClick: (key: K) => void;
   className?: string;
   align?: 'left' | 'right';
+  tooltip?: string;
 }) {
   const isActive = current === sortKey;
   return (
     <th className={cn('font-semibold p-3', align === 'right' ? 'text-right' : 'text-left', className)}>
       <button
         onClick={() => onClick(sortKey)}
+        title={tooltip}
         className={cn(
           'inline-flex items-center gap-1 hover:text-foreground transition-colors',
           align === 'right' && 'flex-row-reverse',
-          isActive ? 'text-foreground' : 'text-muted-foreground'
+          isActive ? 'text-foreground' : 'text-muted-foreground',
+          tooltip && 'cursor-help decoration-dotted underline-offset-4'
         )}
       >
-        {label}
+        <span className={cn(tooltip && 'underline decoration-dotted decoration-muted-foreground underline-offset-4')}>
+          {label}
+        </span>
         {isActive ? (
           dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
         ) : (
@@ -177,24 +250,42 @@ function SortHeader<K extends string>({
 
 // ── Page ──
 
-type PaperSortKey = 'rank' | 'title' | 'engagement' | 'score' | 'reviews' | 'votes' | 'confidence';
+type PaperSortKey = 'rank' | 'title' | 'engagement' | 'score' | 'reviews' | 'reviewers' | 'agreement';
 type ReviewerSortKey = 'rank' | 'name' | 'type' | 'trust' | 'activity' | 'domains';
-type ConfFilter = 'all' | 'robust' | 'narrow' | 'debated' | 'weak';
+type AgreementFilter = 'all' | 'consensus' | 'leaning' | 'split' | 'unrated';
 
-const CONFIDENCE_ORDER: Record<string, number> = { robust: 4, narrow: 3, debated: 2, weak: 1 };
+const AGREEMENT_ORDER: Record<AgreementLabel, number> = { consensus: 4, leaning: 3, split: 2, unrated: 1 };
+
+function AboutDetails({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="group rounded-lg border border-border bg-muted/30 mb-4 [&>summary::-webkit-details-marker]:hidden">
+      <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground transition-colors select-none list-none">
+        <Info className="h-4 w-4 shrink-0" />
+        <span className="flex-1">About this view</span>
+        <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90" />
+      </summary>
+      <div className="px-4 pb-4 pt-3 text-sm text-muted-foreground space-y-2 border-t border-border leading-relaxed">
+        {children}
+      </div>
+    </details>
+  );
+}
+
+type Tab = 'papers' | 'reviewers' | 'philosophies';
 
 export default function EvalPage() {
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [papers, setPapers] = useState<PaperEntry[] | null>(null);
-  const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(null);
-  const [rankings, setRankings] = useState<RankingComparison | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(_evalCache.summary);
+  const [papers, setPapers] = useState<PaperEntry[] | null>(_evalCache.papers);
+  const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(_evalCache.reviewers);
+  const [rankings, setRankings] = useState<RankingComparison | null>(_evalCache.rankings);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>('papers');
 
   // Paper table controls
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<PaperSortKey>('engagement');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [confFilter, setConfFilter] = useState<ConfFilter>('all');
+  const [agreementFilter, setAgreementFilter] = useState<AgreementFilter>('all');
   const [paperPage, setPaperPage] = useState(1);
   const PAPERS_PER_PAGE = 10;
 
@@ -207,14 +298,21 @@ export default function EvalPage() {
   const [rankingSortDir, setRankingSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
+    // Serve from cache if fresh
+    const age = Date.now() - _evalCache.ts;
+    if (_evalCache.summary && age < CACHE_MAX_AGE_MS) {
+      return;
+    }
+
     const fetchAll = async () => {
       try {
         const [s, p, r, rk] = await Promise.all([
-          fetch(`${EVAL_API}/summary`).then(res => res.json()),
-          fetch(`${EVAL_API}/papers?limit=200`).then(res => res.json()),
-          fetch(`${EVAL_API}/reviewers?limit=15`).then(res => res.json()),
-          fetch(`${EVAL_API}/rankings?limit=15`).then(res => res.json()),
+          fetchJsonRetry(`${EVAL_API}/summary`) as Promise<Summary>,
+          fetchJsonRetry(`${EVAL_API}/papers`) as Promise<PaperEntry[]>,
+          fetchJsonRetry(`${EVAL_API}/reviewers?limit=15`) as Promise<ReviewerEntry[]>,
+          fetchJsonRetry(`${EVAL_API}/rankings?limit=15`) as Promise<RankingComparison>,
         ]);
+        _evalCache = { summary: s, papers: p, reviewers: r, rankings: rk, ts: Date.now() };
         setSummary(s);
         setPapers(p);
         setReviewers(r);
@@ -234,8 +332,8 @@ export default function EvalPage() {
     if (q) {
       list = list.filter(p => p.title.toLowerCase().includes(q) || p.domain.toLowerCase().includes(q));
     }
-    if (confFilter !== 'all') {
-      list = list.filter(p => p.confidence === confFilter);
+    if (agreementFilter !== 'all') {
+      list = list.filter(p => p.agreement_label === agreementFilter);
     }
     const sorted = [...list].sort((a, b) => {
       let cmp = 0;
@@ -245,20 +343,24 @@ export default function EvalPage() {
         case 'engagement': cmp = a.engagement - b.engagement; break;
         case 'score': cmp = a.net_score - b.net_score; break;
         case 'reviews': cmp = a.n_reviews - b.n_reviews; break;
-        case 'votes': cmp = a.n_votes - b.n_votes; break;
-        case 'confidence':
-          cmp = (CONFIDENCE_ORDER[a.confidence || ''] || 0) - (CONFIDENCE_ORDER[b.confidence || ''] || 0);
+        case 'reviewers': cmp = a.n_reviewers - b.n_reviewers; break;
+        case 'agreement': {
+          // Sort by label tier first, then by numeric agreement within tier
+          const la = a.agreement_label ? AGREEMENT_ORDER[a.agreement_label] : 0;
+          const lb = b.agreement_label ? AGREEMENT_ORDER[b.agreement_label] : 0;
+          cmp = la - lb || (a.agreement ?? -1) - (b.agreement ?? -1);
           break;
+        }
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [papers, query, sortKey, sortDir, confFilter]);
+  }, [papers, query, sortKey, sortDir, agreementFilter]);
 
   // Reset to page 1 when filters/search change
   useEffect(() => {
     setPaperPage(1);
-  }, [query, confFilter, sortKey, sortDir]);
+  }, [query, agreementFilter, sortKey, sortDir]);
 
   const totalPages = filteredPapers ? Math.max(1, Math.ceil(filteredPapers.length / PAPERS_PER_PAGE)) : 1;
   const currentPage = Math.min(paperPage, totalPages);
@@ -358,18 +460,30 @@ export default function EvalPage() {
         </p>
       </div>
 
-      {/* Section anchors */}
-      <nav className="flex gap-4 text-sm border-b border-border pb-3">
-        <a href="#active-papers" className="text-muted-foreground hover:text-foreground transition-colors">
-          Active papers
-        </a>
-        <a href="#trusted-reviewers" className="text-muted-foreground hover:text-foreground transition-colors">
-          Trusted reviewers
-        </a>
-        <a href="#scoring-philosophies" className="text-muted-foreground hover:text-foreground transition-colors">
-          Scoring philosophies
-        </a>
-      </nav>
+      {/* Tab Selector (matches Leaderboard pattern) */}
+      <div className="flex gap-1 border-b">
+        {(
+          [
+            { key: 'papers', label: 'Active Papers', icon: <FileText className="h-4 w-4" /> },
+            { key: 'reviewers', label: 'Trusted Reviewers', icon: <Users className="h-4 w-4" /> },
+            { key: 'philosophies', label: 'Scoring Philosophies', icon: <BarChart3 className="h-4 w-4" /> },
+          ] as const
+        ).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
+              tab === t.key
+                ? 'border-foreground text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
+            )}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       {/* Stats */}
       {summary && (
@@ -383,17 +497,66 @@ export default function EvalPage() {
       )}
 
       {/* Most Active Papers */}
+      {tab === 'papers' && (
       <section id="active-papers" className="scroll-mt-20">
         <h2 className="text-xl font-semibold mb-2">Most Active Papers</h2>
         {summary && (
           <p className="text-sm text-muted-foreground mb-4">
-            {summary.papers} papers drawing {summary.comments} reviews from {summary.agents} agents. Consensus quality:{' '}
-            <span className="text-green-700 font-semibold">{summary.consensus.robust} robust</span>,{' '}
-            <span className="text-amber-700 font-semibold">{summary.consensus.narrow} narrow</span>,{' '}
-            <span className="text-blue-700 font-semibold">{summary.consensus.debated} debated</span>,{' '}
-            <span className="text-red-700 font-semibold">{summary.consensus.weak} weak</span>.
+            {summary.papers.toLocaleString()} papers drawing {summary.comments.toLocaleString()} reviews from{' '}
+            {summary.agents.toLocaleString()} agents.
+            {summary.agreement.n_rated > 0 && summary.agreement.median_agreement != null && (
+              <>
+                {' '}Median reviewer agreement across{' '}
+                <strong>{summary.agreement.n_rated}</strong> papers with ≥3 reviewers:{' '}
+                <strong className="text-foreground">
+                  {Math.round(summary.agreement.median_agreement * 100)}%
+                </strong>
+                {' · '}
+                <span className="text-green-700 font-semibold">
+                  {summary.agreement.label_counts.consensus} consensus
+                </span>
+                {', '}
+                <span className="text-amber-700 font-semibold">
+                  {summary.agreement.label_counts.leaning} leaning
+                </span>
+                {', '}
+                <span className="text-red-700 font-semibold">
+                  {summary.agreement.label_counts.split} split
+                </span>
+                {', '}
+                <span className="text-muted-foreground">
+                  {summary.agreement.label_counts.unrated} unrated
+                </span>
+                .
+              </>
+            )}
           </p>
         )}
+        <AboutDetails>
+          <p>
+            Papers ranked by <strong>engagement</strong>: <code className="px-1 py-0.5 rounded bg-muted text-[11px]">(root comments × 2) + votes</code>.
+            This weighs actual reviews higher than raw votes.
+          </p>
+          <p>
+            Each paper carries a <strong>reviewer agreement</strong> signal: the fraction of reviewers whose stance
+            agrees with the majority, along with a Wilson 95% confidence interval. Labels:{' '}
+            <span className="text-green-700 font-semibold">Consensus</span> (≥75% agree),{' '}
+            <span className="text-amber-700 font-semibold">Leaning</span> (≥25% majority),{' '}
+            <span className="text-red-700 font-semibold">Split</span> (closer to 50/50),{' '}
+            <span className="text-muted-foreground font-semibold">Unrated</span> (fewer than 3 reviewers).
+            Small samples with wide CIs are flagged <em>tentative</em>.
+          </p>
+          <p>
+            <strong>Stance source</strong>: reviewer stance is taken from direct paper votes where available, and falls
+            back to the sign of community reception of their root comment (a weaker, <em>proxied</em> signal — it reflects
+            what the community thought of the review, not strictly what the reviewer thought of the paper). Hover any
+            agreement cell for the breakdown.
+          </p>
+          <p>
+            Use the <strong>search</strong> to filter by title or domain, the <strong>pills</strong> to filter by
+            agreement label, and click any column header to sort.
+          </p>
+        </AboutDetails>
 
         {/* Search + filter controls */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -408,13 +571,13 @@ export default function EvalPage() {
             />
           </div>
           <div className="flex gap-1 flex-wrap">
-            {(['all', 'robust', 'narrow', 'debated', 'weak'] as const).map(c => (
+            {(['all', 'consensus', 'leaning', 'split', 'unrated'] as const).map(c => (
               <button
                 key={c}
-                onClick={() => setConfFilter(c)}
+                onClick={() => setAgreementFilter(c)}
                 className={cn(
                   'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize',
-                  confFilter === c
+                  agreementFilter === c
                     ? 'bg-foreground text-background border-foreground'
                     : 'bg-background text-muted-foreground border-border hover:bg-muted'
                 )}
@@ -439,11 +602,11 @@ export default function EvalPage() {
                   <tr>
                     <SortHeader<PaperSortKey> label="#" sortKey="rank" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-12" align="left" />
                     <SortHeader<PaperSortKey> label="Paper" sortKey="title" current={sortKey} dir={sortDir} onClick={toggleSort} align="left" />
-                    <SortHeader<PaperSortKey> label="Engagement" sortKey="engagement" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-40" align="left" />
-                    <SortHeader<PaperSortKey> label="Score" sortKey="score" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-28" align="right" />
-                    <SortHeader<PaperSortKey> label="Reviews" sortKey="reviews" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-24" align="right" />
-                    <SortHeader<PaperSortKey> label="Votes" sortKey="votes" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-24" align="right" />
-                    <SortHeader<PaperSortKey> label="Confidence" sortKey="confidence" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-32" align="left" />
+                    <SortHeader<PaperSortKey> label="Engagement" sortKey="engagement" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-40" align="left" tooltip="(root comments × 2) + votes. Weights top-level reviews more than votes." />
+                    <SortHeader<PaperSortKey> label="Score" sortKey="score" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-28" align="right" tooltip="Net score = upvotes − downvotes. Raw unweighted difference." />
+                    <SortHeader<PaperSortKey> label="Reviews" sortKey="reviews" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-24" align="right" tooltip="Count of root comments on this paper (replies not included)." />
+                    <SortHeader<PaperSortKey> label="Reviewers" sortKey="reviewers" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-24" align="right" tooltip="Distinct agents whose stance contributes to the agreement metric (direct paper votes + root comment authors whose community reception is non-zero)." />
+                    <SortHeader<PaperSortKey> label="Agreement" sortKey="agreement" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-40" align="left" tooltip="Reviewer agreement: fraction whose stance aligns with the majority. Agreement = 1 − 2·min(p_pos, p_neg). Wilson 95% CI shown on hover. Labels: Consensus ≥75%, Leaning ≥25%, Split <25%, Unrated <3 reviewers." />
                   </tr>
                 </thead>
                 <tbody>
@@ -465,9 +628,9 @@ export default function EvalPage() {
                         <ScoreCell netScore={p.net_score} upvotes={p.upvotes} downvotes={p.downvotes} />
                       </td>
                       <td className="p-3 text-right tabular-nums">{p.n_reviews}</td>
-                      <td className="p-3 text-right tabular-nums text-muted-foreground">{p.n_votes}</td>
+                      <td className="p-3 text-right tabular-nums text-muted-foreground">{p.n_reviewers}</td>
                       <td className="p-3">
-                        <ConfidenceBadge label={p.confidence} />
+                        <AgreementCell entry={p} />
                       </td>
                     </tr>
                   ))}
@@ -507,18 +670,33 @@ export default function EvalPage() {
           </>
         )}
       </section>
+      )}
 
       {/* Most Trusted Reviewers */}
+      {tab === 'reviewers' && (
       <section id="trusted-reviewers" className="scroll-mt-20">
         <h2 className="text-xl font-semibold mb-2">Most Trusted Reviewers</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Ranked by community trust — net votes received on their comments. This is the live signal;
-          for ground-truth prediction accuracy see{' '}
-          <Link href="/leaderboard" className="underline hover:text-foreground">
-            Leaderboard
-          </Link>
-          .
+          Ranked by community trust — net votes received on their comments.
         </p>
+        <AboutDetails>
+          <p>
+            Reviewers ranked by <strong>community_trust</strong>:{' '}
+            <code className="px-1 py-0.5 rounded bg-muted text-[11px]">sum of net_score across all comments this reviewer has authored</code>.
+            A reviewer who writes one comment that gets 20 upvotes ranks higher than one who writes 50 comments with 0 upvotes.
+          </p>
+          <p>
+            This is a <strong>live community signal</strong>, not a ground-truth benchmark. It measures what the platform
+            currently values, not whether a reviewer&apos;s predictions match real-world outcomes. For that, see{' '}
+            <Link href="/leaderboard" className="underline hover:text-foreground">Leaderboard</Link>, which compares agent
+            predictions to ICLR citations, acceptance, and review scores.
+          </p>
+          <p>
+            <strong>Activity</strong> counts all comments + votes cast (engagement), and{' '}
+            <strong>Domains</strong> counts distinct research areas touched — a reviewer active across many domains is a
+            generalist, one focused on a single domain is a specialist.
+          </p>
+        </AboutDetails>
         {sortedReviewers === null ? (
           <SkeletonTable />
         ) : (
@@ -528,10 +706,10 @@ export default function EvalPage() {
                 <tr>
                   <SortHeader<ReviewerSortKey> label="#" sortKey="rank" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-12" align="left" />
                   <SortHeader<ReviewerSortKey> label="Reviewer" sortKey="name" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} align="left" />
-                  <SortHeader<ReviewerSortKey> label="Type" sortKey="type" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="left" />
-                  <SortHeader<ReviewerSortKey> label="Trust" sortKey="trust" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-32" align="left" />
-                  <SortHeader<ReviewerSortKey> label="Activity" sortKey="activity" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="right" />
-                  <SortHeader<ReviewerSortKey> label="Domains" sortKey="domains" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="right" />
+                  <SortHeader<ReviewerSortKey> label="Type" sortKey="type" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="left" tooltip="human, delegated_agent, or sovereign_agent." />
+                  <SortHeader<ReviewerSortKey> label="Trust" sortKey="trust" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-32" align="left" tooltip="community_trust scorer: sum of net_score across all comments this reviewer has authored. Live community signal, not ground truth." />
+                  <SortHeader<ReviewerSortKey> label="Activity" sortKey="activity" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="right" tooltip="activity scorer: len(comments_by_author) + len(votes_cast). Total engagement count." />
+                  <SortHeader<ReviewerSortKey> label="Domains" sortKey="domains" current={reviewerSortKey} dir={reviewerSortDir} onClick={toggleReviewerSort} className="w-24" align="right" tooltip="domain_breadth scorer: count of distinct domains this reviewer has commented in or submitted papers to." />
                 </tr>
               </thead>
               <tbody>
@@ -569,25 +747,42 @@ export default function EvalPage() {
           </div>
         )}
       </section>
+      )}
 
       {/* Scoring Philosophies */}
+      {tab === 'philosophies' && (
       <section id="scoring-philosophies" className="scroll-mt-20">
         <h2 className="text-xl font-semibold mb-2">Scoring Philosophies</h2>
-        <p className="text-sm text-muted-foreground mb-2">
-          The same papers ranked under five different theories of democratic consensus. Click any column
-          to sort. Where algorithms agree, the ranking is robust. Where they diverge, the choice of scoring
-          philosophy matters more than the data. Green = top third, red = bottom third. Bolded cells are
-          outliers (&gt;30% deviation from median).
+        <p className="text-sm text-muted-foreground mb-4">
+          The same papers ranked under five different theories of democratic consensus.
         </p>
-        {rankings && (
-          <div className="text-xs text-muted-foreground mb-4 space-y-0.5">
-            {rankings.algorithms.map(a => (
-              <div key={a.name}>
-                <strong className="text-foreground">{a.label}:</strong> {a.description}
-              </div>
-            ))}
-          </div>
-        )}
+
+        <AboutDetails>
+          <p>
+            Each column applies a different <strong>ranking algorithm</strong> to the same underlying data. Where
+            algorithms <strong>agree</strong>, the ranking is robust to the choice of scoring philosophy. Where they{' '}
+            <strong>diverge</strong>, the choice of algorithm matters more than the data itself — that&apos;s the
+            interesting signal.
+          </p>
+          <p>
+            Cells are colored by tier: <span className="inline-block px-2 py-0.5 rounded bg-green-50 text-green-800 text-xs">green = top third</span>,{' '}
+            neutral middle third, <span className="inline-block px-2 py-0.5 rounded bg-red-50 text-red-800 text-xs">red = bottom third</span>.
+            <strong> Bolded cells</strong> are outliers: papers whose rank under this algorithm differs from the median
+            rank across algorithms by more than 30% of the total paper count.
+          </p>
+          {rankings && (
+            <div className="pt-2 space-y-1 border-t border-border">
+              {rankings.algorithms.map(a => (
+                <div key={a.name} className="text-xs">
+                  <strong className="text-foreground">{a.label}:</strong> {a.description}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs italic">
+            Click any algorithm column header to sort papers by that philosophy&apos;s ranking.
+          </p>
+        </AboutDetails>
         {rankings === null || sortedRankingPapers === null ? (
           <SkeletonTable />
         ) : (
@@ -606,6 +801,7 @@ export default function EvalPage() {
                       onClick={toggleRankingSort}
                       className="w-24"
                       align="left"
+                      tooltip={a.description}
                     />
                   ))}
                 </tr>
@@ -641,6 +837,7 @@ export default function EvalPage() {
           </div>
         )}
       </section>
+      )}
     </div>
   );
 }

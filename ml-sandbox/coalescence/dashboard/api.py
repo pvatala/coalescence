@@ -6,9 +6,9 @@ suitable for JSON serialization. Used by the Next.js frontend.
 
 from __future__ import annotations
 
-from coalescence.dashboard.panels.leaderboards import (
-    _compute_paper_confidence,
-)
+import math
+from statistics import median as _median
+
 from coalescence.ranking.attachment_boost import AttachmentBoostRanking
 from coalescence.ranking.egalitarian import EgalitarianRanking
 from coalescence.ranking.elo import EloRanking
@@ -28,46 +28,204 @@ _RANKING_PLUGINS = [
 _RANKING_META = {
     "egalitarian": {
         "label": "Egalitarian",
-        "description": "One agent, one vote. Every reviewer has equal weight regardless of track record.",
+        "description": "score_paper = paper.net_score. Baseline: raw upvotes minus downvotes, each vote weighted equally.",
     },
     "weighted_log": {
         "label": "Weighted Log",
-        "description": "Expertise earns influence. Vote weight = 1 + log2(1 + domain authority). Production default.",
+        "description": "score_paper = sum of vote_value * (1 + log2(1 + voter_authority)), where authority = comment_count + net_validation_votes. Production default.",
     },
     "pagerank": {
         "label": "PageRank",
-        "description": "Network reputation. Authority propagates: votes from high-authority reviewers count more.",
+        "description": "Runs PageRank (damping=0.85, 20 iterations) on the voter->comment_author upvote graph. score_paper = sum(vote_value * voter_authority * 100).",
     },
     "elo": {
         "label": "Elo",
-        "description": "Track record ranking. Upvotes on your reviews raise your Elo; downvotes lower it.",
+        "description": "Treats comment upvotes as pairwise matches (K=32, initial=1000). Authors win on upvotes, lose on downvotes. score_paper = sum(vote_value * voter_elo / 1000).",
     },
     "comment_depth": {
         "label": "Depth",
-        "description": "Engagement depth. Papers with more comments and higher net scores rank higher.",
+        "description": "score_paper = comment_count + paper.net_score. Rewards papers with more top-level discussion.",
     },
 }
 
 
-def _confidence_label(diversity: float, agreement: float) -> str:
-    high_div = diversity > 0.5
-    high_agr = agreement > 0.5
-    if high_div and high_agr:
-        return "robust"
-    if not high_div and high_agr:
-        return "narrow"
-    if high_div and not high_agr:
-        return "debated"
-    return "weak"
+# ── Per-paper reviewer agreement (Wilson CI) ──
+
+
+def _wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson 95% score interval for a binomial proportion.
+
+    More accurate than the normal approximation for small samples and for
+    proportions near 0 or 1. This is the standard interval for reviewer
+    agreement questions.
+    """
+    if n == 0:
+        return (0.0, 1.0)
+    p = successes / n
+    denom = 1.0 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    halfwidth = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return (max(0.0, center - halfwidth), min(1.0, center + halfwidth))
+
+
+def _agreement_label(n: int, ci_low: float, ci_high: float, agreement: float) -> str:
+    """Label per paper by raw agreement, with CI used as a tentative flag.
+
+    - ``unrated`` — fewer than 3 distinct reviewers
+    - ``consensus`` — agreement >= 0.75 (~87/13 split or tighter)
+    - ``leaning``   — agreement >= 0.25 (~62/38 to 87/13)
+    - ``split``     — closer to 50/50
+
+    Callers can additionally surface a ``tentative`` flag when the Wilson CI
+    is still wide (``ci_high - ci_low > 0.5``) and the reviewer count is low,
+    which reflects "the raw agreement looks strong but sample is too small to
+    fully trust". The label itself stays intuitive.
+    """
+    if n < 3:
+        return "unrated"
+    if agreement >= 0.75:
+        return "consensus"
+    if agreement >= 0.25:
+        return "leaning"
+    return "split"
+
+
+def _is_tentative(n: int, ci_low: float, ci_high: float) -> bool:
+    """True if the Wilson CI is wide enough that the label should be hedged."""
+    return n < 6 and (ci_high - ci_low) > 0.5
+
+
+def _compute_paper_agreement(ds) -> dict[str, dict]:
+    """Per-paper reviewer agreement with Wilson 95% CI.
+
+    A stance signal is collected per distinct agent who engaged with the paper:
+      1. Preferred — the agent's direct paper vote (``explicit``).
+      2. Fallback — the sign of community response to their root comment
+         (``proxied``). This is weaker because it reflects community reception
+         of the review, not the reviewer's own stance.
+
+    Agreement = ``1 - 2 * min(p_pos, p_neg)``. Wilson CI is computed on the
+    *majority* fraction (i.e. the larger of positive/negative stance counts
+    divided by n). A tight CI with a high lower bound = confident consensus.
+
+    Returns a dict mapping paper_id -> dict with fields:
+      ``n_reviewers``, ``agreement``, ``p_positive``, ``direction``,
+      ``ci_low``, ``ci_high``, ``stance_source``, ``label``.
+    """
+    out: dict[str, dict] = {}
+
+    for paper in ds.papers:
+        pid = paper.id
+        # agent_id -> (stance, source). 'explicit' takes precedence over 'proxied'.
+        stances: dict[str, tuple[int, str]] = {}
+
+        for vote in ds.votes.for_target(pid):
+            if vote.target_type == "PAPER" and vote.vote_value != 0:
+                sign = 1 if vote.vote_value > 0 else -1
+                stances[vote.voter_id] = (sign, "explicit")
+
+        for comment in ds.comments.roots_for(pid):
+            aid = comment.author_id
+            if aid in stances:
+                continue  # explicit vote already recorded
+            net = comment.net_score
+            if net == 0:
+                continue  # neutral community reception = no usable signal
+            sign = 1 if net > 0 else -1
+            stances[aid] = (sign, "proxied")
+
+        n = len(stances)
+        if n == 0:
+            out[pid] = {
+                "n_reviewers": 0,
+                "agreement": None,
+                "p_positive": None,
+                "direction": None,
+                "ci_low": None,
+                "ci_high": None,
+                "stance_source": "none",
+                "label": None,
+            }
+            continue
+
+        n_pos = sum(1 for s, _ in stances.values() if s > 0)
+        n_neg = n - n_pos
+        p_pos = n_pos / n
+
+        min_share = min(p_pos, 1 - p_pos)
+        agreement = 1 - 2 * min_share
+
+        majority_n = max(n_pos, n_neg)
+        ci_low, ci_high = _wilson_interval(majority_n, n)
+
+        sources = {src for _, src in stances.values()}
+        if sources == {"explicit"}:
+            stance_source = "explicit"
+        elif sources == {"proxied"}:
+            stance_source = "proxied"
+        else:
+            stance_source = "mixed"
+
+        if p_pos > 0.5:
+            direction = "positive"
+        elif p_pos < 0.5:
+            direction = "negative"
+        else:
+            direction = "split"
+
+        out[pid] = {
+            "n_reviewers": n,
+            "agreement": round(agreement, 3),
+            "p_positive": round(p_pos, 3),
+            "direction": direction,
+            "ci_low": round(ci_low, 3),
+            "ci_high": round(ci_high, 3),
+            "stance_source": stance_source,
+            "label": _agreement_label(n, ci_low, ci_high, agreement),
+            "tentative": _is_tentative(n, ci_low, ci_high),
+        }
+
+    return out
+
+
+def _system_agreement_summary(agreement_by_paper: dict[str, dict]) -> dict:
+    """System-level aggregate: median agreement across rated papers."""
+    rated = [
+        v
+        for v in agreement_by_paper.values()
+        if v.get("label") and v["label"] != "unrated"
+    ]
+    if not rated:
+        return {
+            "n_rated": 0,
+            "median_agreement": None,
+            "label_counts": {
+                "consensus": 0,
+                "leaning": 0,
+                "split": 0,
+                "unrated": 0,
+            },
+        }
+
+    label_counts = {"consensus": 0, "leaning": 0, "split": 0, "unrated": 0}
+    for v in agreement_by_paper.values():
+        lbl = v.get("label") or "unrated"
+        label_counts[lbl] = label_counts.get(lbl, 0) + 1
+
+    return {
+        "n_rated": len(rated),
+        "median_agreement": round(_median(v["agreement"] for v in rated), 3),
+        "label_counts": label_counts,
+    }
+
+
+# ── Summary ──
 
 
 def build_summary(ds) -> dict:
-    """High-level stats + consensus breakdown."""
-    confidence = _compute_paper_confidence(ds)
-    conf_counts = {"robust": 0, "narrow": 0, "debated": 0, "weak": 0}
-    for n, d, a in confidence.values():
-        if n >= 2:
-            conf_counts[_confidence_label(d, a)] += 1
+    """High-level stats + system-level reviewer agreement aggregate."""
+    agreement_by_paper = _compute_paper_agreement(ds)
+    system = _system_agreement_summary(agreement_by_paper)
 
     return {
         "papers": len(ds.papers),
@@ -75,32 +233,44 @@ def build_summary(ds) -> dict:
         "votes": len(ds.votes),
         "humans": len(ds.actors.humans),
         "agents": len(ds.actors.agents),
-        "consensus": conf_counts,
+        "agreement": system,
     }
 
 
-def build_paper_leaderboard(ds, limit: int = 20) -> list[dict]:
-    """Top papers by engagement with confidence badges."""
+# ── Paper leaderboard ──
+
+
+def build_paper_leaderboard(ds, limit: int | None = None) -> list[dict]:
+    """All papers ranked by engagement with per-paper reviewer agreement.
+
+    If ``limit`` is None or 0, returns every paper in the dataset. Engagement
+    is normalized against the max engagement of the returned set so the bar
+    widths stay readable regardless of limit.
+    """
     results = run_all(ds)
     df = results.paper_scores
     if df.empty or "engagement" not in df.columns:
         return []
 
-    confidence = _compute_paper_confidence(ds)
+    agreement_by_paper = _compute_paper_agreement(ds)
     paper_by_id = {p.id: p for p in ds.papers}
 
-    active = df[df["engagement"] > 0]
-    top = active.sort_values("engagement", ascending=False).head(limit)
-    max_eng = float(top["engagement"].max()) if not top.empty else 1.0
+    ordered = df.sort_values("engagement", ascending=False)
+    if limit:
+        ordered = ordered.head(limit)
+    max_eng = float(ordered["engagement"].max()) if not ordered.empty else 1.0
+    if max_eng <= 0:
+        max_eng = 1.0
 
     entries = []
-    for rank, (pid, row) in enumerate(top.iterrows(), 1):
+    for rank, (pid, row) in enumerate(ordered.iterrows(), 1):
         paper = paper_by_id.get(pid)
-        n_signals, div, agr = confidence.get(pid, (0, 0.0, 0.0))
         n_reviews = len(ds.comments.roots_for(pid))
         n_votes = len(ds.votes.for_target(pid))
         upvotes = paper.upvotes if paper else 0
         downvotes = paper.downvotes if paper else 0
+        agr = agreement_by_paper.get(pid, {})
+
         entries.append(
             {
                 "rank": rank,
@@ -116,13 +286,22 @@ def build_paper_leaderboard(ds, limit: int = 20) -> list[dict]:
                 "downvotes": downvotes,
                 "n_reviews": n_reviews,
                 "n_votes": n_votes,
-                "diversity": round(div, 3),
-                "agreement": round(agr, 3),
-                "confidence": _confidence_label(div, agr) if n_signals >= 2 else None,
+                "n_reviewers": agr.get("n_reviewers", 0),
+                "agreement": agr.get("agreement"),
+                "p_positive": agr.get("p_positive"),
+                "direction": agr.get("direction"),
+                "ci_low": agr.get("ci_low"),
+                "ci_high": agr.get("ci_high"),
+                "stance_source": agr.get("stance_source", "none"),
+                "agreement_label": agr.get("label"),
+                "tentative": agr.get("tentative", False),
                 "url": f"/paper/{pid}",
             }
         )
     return entries
+
+
+# ── Reviewer leaderboard ──
 
 
 def build_reviewer_leaderboard(ds, limit: int = 15) -> list[dict]:
@@ -167,13 +346,20 @@ def build_reviewer_leaderboard(ds, limit: int = 15) -> list[dict]:
     return entries
 
 
-def build_ranking_comparison(ds, limit: int = 15) -> dict:
-    """Top papers ranked by each of the 5 algorithms."""
-    papers, _actors, events = ds.to_ranking_inputs()
-    if not papers or not events:
-        return {"papers": [], "algorithms": []}
+# ── Ranking comparison (5 algorithms) ──
 
-    # Index events per paper
+
+def _compute_plugin_scores(ds):
+    """Shared helper: score every paper under every ranking plugin.
+
+    Returns ``(papers, plugin_scores, degenerate)`` where ``plugin_scores``
+    is ``{plugin_name: {paper_id: score}}`` and ``degenerate`` is the set of
+    plugin names that produced a single score for every paper (no signal).
+    """
+    papers, _actors, events = ds.to_ranking_inputs()
+    if not papers:
+        return [], {}, set()
+
     paper_events: dict[str, list] = {p.id: [] for p in papers}
     for ev in events:
         if ev.target_id in paper_events:
@@ -181,19 +367,26 @@ def build_ranking_comparison(ds, limit: int = 15) -> dict:
         elif ev.payload and ev.payload.get("paper_id") in paper_events:
             paper_events[ev.payload["paper_id"]].append(ev)
 
-    # Score per plugin
     plugin_scores: dict[str, dict[str, float]] = {}
     for plugin in _RANKING_PLUGINS:
-        scores = {p.id: plugin.score_paper(p, paper_events[p.id]) for p in papers}
-        plugin_scores[plugin.name] = scores
+        plugin_scores[plugin.name] = {
+            p.id: plugin.score_paper(p, paper_events[p.id]) for p in papers
+        }
 
-    # Detect degenerate
-    degenerate = set()
-    for name, scores in plugin_scores.items():
-        if len({round(v, 6) for v in scores.values()}) <= 1:
-            degenerate.add(name)
+    degenerate = {
+        name
+        for name, scores in plugin_scores.items()
+        if len({round(v, 6) for v in scores.values()}) <= 1
+    }
+    return papers, plugin_scores, degenerate
 
-    # Rank lookup per plugin
+
+def build_ranking_comparison(ds, limit: int = 15) -> dict:
+    """Top papers ranked by each of the 5 algorithms."""
+    papers, plugin_scores, degenerate = _compute_plugin_scores(ds)
+    if not papers or not plugin_scores:
+        return {"papers": [], "algorithms": []}
+
     plugin_ranks: dict[str, list[str]] = {}
     for plugin in _RANKING_PLUGINS:
         if plugin.name in degenerate:
@@ -240,9 +433,8 @@ def build_ranking_comparison(ds, limit: int = 15) -> dict:
             else:
                 ranks[plugin.name] = rank_lookup[plugin.name].get(pid, total)
 
-        # Compute outliers: rank > 30% from median
         valid_ranks = [r for r in ranks.values() if r is not None]
-        median = sorted(valid_ranks)[len(valid_ranks) // 2] if valid_ranks else 0
+        median_rank = sorted(valid_ranks)[len(valid_ranks) // 2] if valid_ranks else 0
 
         entries.append(
             {
@@ -253,7 +445,7 @@ def build_ranking_comparison(ds, limit: int = 15) -> dict:
                 "outliers": [
                     name
                     for name, r in ranks.items()
-                    if r is not None and abs(r - median) > total * 0.3
+                    if r is not None and abs(r - median_rank) > total * 0.3
                 ],
             }
         )
@@ -263,3 +455,11 @@ def build_ranking_comparison(ds, limit: int = 15) -> dict:
         "papers": entries,
         "total_papers": total,
     }
+
+
+__all__ = [
+    "build_summary",
+    "build_paper_leaderboard",
+    "build_reviewer_leaderboard",
+    "build_ranking_comparison",
+]

@@ -45,16 +45,22 @@ def activity(actor, ds):
 # --- Cache ---
 
 _cache = {"ds": None, "ts": 0}
-CACHE_TTL = 120  # seconds
+CACHE_TTL = 600  # seconds
 
 
 def get_dataset(email: str, password: str, base_url: str | None = None) -> Dataset:
     now = time.time()
     if _cache["ds"] is None or now - _cache["ts"] > CACHE_TTL:
-        kwargs = {"email": email, "password": password}
-        if base_url:
-            kwargs["base_url"] = base_url
-        _cache["ds"] = Dataset.from_live(**kwargs)
+        # Dev-only: DUMP_DIR env var lets us test against a local JSONL dump
+        # without hitting the live API.
+        dump_dir = os.environ.get("DUMP_DIR")
+        if dump_dir:
+            _cache["ds"] = Dataset.load(dump_dir)
+        else:
+            kwargs = {"email": email, "password": password}
+            if base_url:
+                kwargs["base_url"] = base_url
+            _cache["ds"] = Dataset.from_live(**kwargs)
         _cache["ts"] = now
     return _cache["ds"]
 
@@ -199,9 +205,9 @@ def create_app(email: str, password: str, base_url: str | None = None) -> FastAP
         return build_summary(ds)
 
     @app.get("/api/papers")
-    def api_papers(limit: int = 20):
+    def api_papers(limit: int = 0):
         ds = get_dataset(email, password, base_url)
-        return build_paper_leaderboard(ds, limit=limit)
+        return build_paper_leaderboard(ds, limit=limit or None)
 
     @app.get("/api/reviewers")
     def api_reviewers(limit: int = 15):

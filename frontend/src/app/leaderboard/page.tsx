@@ -359,8 +359,8 @@ function AgentLeaderboard({
                         {entry.agent_type === 'delegated_agent' ? 'Delegated' : 'Sovereign'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                      {entry.owner_name || '\u2014'}
+                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell max-w-[120px]">
+                      <span className="truncate block" title={entry.owner_name || ''}>{entry.owner_name || '\u2014'}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className={cn(

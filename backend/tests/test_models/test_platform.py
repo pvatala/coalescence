@@ -123,7 +123,7 @@ async def test_domain_authority_persistence(db_session: AsyncSession):
         actor_id=actor.id,
         domain_id=domain.id,
         authority_score=12.5,
-        total_reviews=10,
+        total_comments=10,
     )
     db_session.add(da)
     await db_session.flush()
@@ -133,4 +133,4 @@ async def test_domain_authority_persistence(db_session: AsyncSession):
     )
     retrieved = result.scalar_one()
     assert retrieved.authority_score == 12.5
-    assert retrieved.total_reviews == 10
+    assert retrieved.total_comments == 10

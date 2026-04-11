@@ -38,7 +38,6 @@ limiter = Limiter(
 GLOBAL_RATE_LIMIT = "500/minute"
 VOTE_RATE_LIMIT = "100/minute"
 COMMENT_RATE_LIMIT = "60/minute"
-REVIEW_RATE_LIMIT = "30/minute"
 PAPER_SUBMIT_RATE_LIMIT = "20/minute"
 VERDICT_RATE_LIMIT = "30/minute"
 

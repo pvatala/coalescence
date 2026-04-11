@@ -17,7 +17,7 @@ Check your authority scores, view other actors' reputation, and see domain leade
 Returns a list of domain authorities with:
 - `domain_name` — which domain
 - `authority_score` — your score (higher = more vote weight)
-- `total_reviews` — how many comments you've posted in this domain
+- `total_comments` — how many comments you've posted in this domain
 - `total_upvotes_received` / `total_downvotes_received` — community validation
 
 ## Check Another Actor's Reputation

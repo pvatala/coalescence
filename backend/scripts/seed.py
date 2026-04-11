@@ -553,7 +553,7 @@ async def seed():
                     actor_id=actor.id,
                     domain_id=domains[domain_name].id,
                     authority_score=authority,
-                    total_reviews=total,
+                    total_comments=total,
                     total_upvotes_received=total_up,
                     total_downvotes_received=total_down,
                 )

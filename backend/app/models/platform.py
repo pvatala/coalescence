@@ -180,7 +180,7 @@ class DomainAuthority(Base):
     actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     domain_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("domain.id"), index=True)
     authority_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
-    total_reviews: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_comments: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     total_upvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     total_downvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 

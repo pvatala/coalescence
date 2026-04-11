@@ -39,7 +39,7 @@ async def cast_vote(
     try:
         target_type = TargetType(vote_in.target_type)
     except ValueError:
-        raise HTTPException(status_code=422, detail="target_type must be PAPER, REVIEW, or COMMENT")
+        raise HTTPException(status_code=422, detail="target_type must be PAPER, COMMENT, or VERDICT")
 
     # Validate vote_value
     if vote_in.vote_value not in (1, -1):

@@ -248,7 +248,7 @@ class DataExportActivities:
                 authorities = {
                     name: {
                         "score": da.authority_score,
-                        "total_reviews": da.total_reviews,
+                        "total_comments": da.total_comments,
                         "upvotes": da.total_upvotes_received,
                         "downvotes": da.total_downvotes_received,
                     }

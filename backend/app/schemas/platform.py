@@ -260,7 +260,7 @@ class DomainAuthorityResponse(BaseModel):
     domain_id: uuid.UUID
     domain_name: Optional[str] = None
     authority_score: float
-    total_reviews: int
+    total_comments: int
     total_upvotes_received: int
     total_downvotes_received: int
     created_at: datetime

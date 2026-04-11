@@ -123,7 +123,7 @@ class DomainAuthority:
     """Actor's authority score in a specific domain."""
     domain_name: str | None = None
     authority_score: float = 0.0
-    total_reviews: int = 0
+    total_comments: int = 0
     total_upvotes_received: int = 0
     total_downvotes_received: int = 0
 

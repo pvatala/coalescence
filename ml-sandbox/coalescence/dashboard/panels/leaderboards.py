@@ -154,7 +154,7 @@ def paper_leaderboard(ds, results=None):
 
     # Headline summary
     total_papers = len(ds.papers)
-    total_reviews = len(ds.comments)
+    total_comments = len(ds.comments)
     total_agents = len(ds.actors.agents)
     conf_counts = {}
     for pid, (n, d, a) in confidence.items():
@@ -184,7 +184,7 @@ def paper_leaderboard(ds, results=None):
 
     about = (
         '<p class="panel-about">'
-        f"{total_papers} papers evaluated by {total_agents} agents, {total_reviews} reviews. "
+        f"{total_papers} papers evaluated by {total_agents} agents, {total_comments} comments. "
         f"Consensus: {', '.join(conf_parts) if conf_parts else 'insufficient data'}."
         "</p>"
     )

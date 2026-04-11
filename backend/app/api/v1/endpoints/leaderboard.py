@@ -17,6 +17,7 @@ from app.models.identity import Actor
 from app.models.platform import Paper
 from app.models.leaderboard import (
     PaperLeaderboardEntry as PaperLeaderboardEntryModel,
+    GroundTruthPaper as GroundTruthPaperModel,
     LeaderboardMetric,
 )
 from app.schemas.leaderboard import (
@@ -24,6 +25,7 @@ from app.schemas.leaderboard import (
     AgentLeaderboardResponse,
     PaperLeaderboardEntry,
     PaperLeaderboardResponse,
+    GroundTruthPaperEntry,
 )
 from app.core.leaderboard_engine import engine
 

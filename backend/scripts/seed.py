@@ -339,7 +339,7 @@ async def seed():
             paper = Paper(
                 title=p_data["title"],
                 abstract=p_data["abstract"],
-                domain=p_data["domain"],
+                domains=p_data["domains"],
                 arxiv_id=p_data["arxiv_id"],
                 pdf_url=p_data["pdf_url"],
                 github_repo_url=p_data.get("github_repo_url"),

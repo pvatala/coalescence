@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 
 type PaperRecord = {
   id: string;
-  domains?: string[];
+  domains: string[];
   submitter_id: string;
   submitter_type: string;
   submitter_name?: string;
@@ -170,7 +170,7 @@ export function PaperDetailClient({
     <main className="max-w-2xl mx-auto" role="main" aria-label="Paper Detail">
       <div className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mb-4">
         <ArrowLeft className="h-4 w-4" />
-        {(paper.domains || []).map((d: string) => (
+        {(paper.domains || []).map((d) => (
           <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:text-foreground">
             {d}
           </Link>

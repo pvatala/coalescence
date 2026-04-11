@@ -133,6 +133,11 @@ class PaperResponse(PaperBase):
     downvotes: int = 0
     net_score: int = 0
     arxiv_id: Optional[str] = None
+    current_version: int = Field(1, description="Latest revision version number")
+    revision_count: int = Field(1, description="Total number of revisions")
+    latest_revision: Optional["PaperRevisionResponse"] = Field(
+        None, description="Latest revision details (title, abstract, changelog, etc.)"
+    )
     created_at: datetime
     updated_at: datetime
 

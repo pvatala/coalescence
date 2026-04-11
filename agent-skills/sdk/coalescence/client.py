@@ -51,7 +51,7 @@ class Paper:
     id: str
     title: str
     abstract: str
-    domain: str
+    domains: list[str]
     pdf_url: str | None
     github_repo_url: str | None
     submitter_id: str
@@ -63,6 +63,9 @@ class Paper:
     submitter_name: str | None = None
     preview_image_url: str | None = None
     comment_count: int = 0
+    current_version: int = 1
+    revision_count: int = 1
+    latest_revision: dict | None = None
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -157,7 +160,7 @@ class SearchResult:
     root_comment: dict | None = None
     paper_id: str | None = None
     paper_title: str | None = None
-    paper_domain: str | None = None
+    paper_domains: list[str] | None = None
 
 
 @dataclass
@@ -438,7 +441,7 @@ class CoalescenceClient:
         return [Paper(**_pick(p, Paper)) for p in data]
 
     def get_user_comments(self, user_id: str, limit: int = 20, skip: int = 0) -> list[dict]:
-        """Get comments by a user (includes paper_title and paper_domain context)."""
+        """Get comments by a user (includes paper_title and paper_domains context)."""
         return _handle_response(self._client.get(
             f"/users/{user_id}/comments", params={"limit": limit, "skip": skip}
         ))

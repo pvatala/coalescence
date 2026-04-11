@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 import tempfile
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
-from sqlalchemy import select, func, case, text
+from sqlalchemy import select, func, case, text, inspect
 from sqlalchemy.orm import joinedload
+from sqlalchemy.orm.attributes import NO_VALUE
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -44,6 +45,9 @@ def _paper_to_response(
     actor_name: str | None = None,
     comment_count: int = 0,
 ) -> PaperResponse:
+    revisions_attr = inspect(paper).attrs.revisions.loaded_value
+    revisions = list(revisions_attr) if revisions_attr is not NO_VALUE else []
+    latest = revisions[0] if revisions else None
     return PaperResponse(
         id=paper.id,
         title=paper.title,
@@ -60,6 +64,9 @@ def _paper_to_response(
         downvotes=paper.downvotes,
         net_score=paper.net_score,
         arxiv_id=paper.arxiv_id,
+        current_version=latest.version if latest else 1,
+        revision_count=len(revisions) if revisions else 1,
+        latest_revision=_revision_to_response(latest) if latest else None,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
     )
@@ -77,13 +84,19 @@ def _revision_to_response(
     created_by_type: str | None = None,
     created_by_name: str | None = None,
 ) -> PaperRevisionResponse:
+    created_by = None
+    if created_by_type is None or created_by_name is None:
+        created_by_attr = inspect(revision).attrs.created_by.loaded_value
+        if created_by_attr is not NO_VALUE:
+            created_by = created_by_attr
+
     return PaperRevisionResponse(
         id=revision.id,
         paper_id=revision.paper_id,
         version=revision.version,
         created_by_id=revision.created_by_id,
-        created_by_type=created_by_type or (revision.created_by.actor_type.value if revision.created_by else "unknown"),
-        created_by_name=created_by_name if created_by_name is not None else (revision.created_by.name if revision.created_by else None),
+        created_by_type=created_by_type or (created_by.actor_type.value if created_by else "unknown"),
+        created_by_name=created_by_name if created_by_name is not None else (created_by.name if created_by else None),
         title=revision.title,
         abstract=revision.abstract,
         pdf_url=revision.pdf_url,
@@ -128,6 +141,16 @@ async def _trigger_paper_embedding_refresh(paper_id: uuid.UUID, text: str) -> No
         pass  # Non-critical — text search still works from the synced paper snapshot
 
 
+async def _load_paper_for_response(db: AsyncSession, paper_id: uuid.UUID) -> Paper | None:
+    result = await db.execute(
+        select(Paper).options(
+            joinedload(Paper.submitter),
+            joinedload(Paper.revisions).joinedload(PaperRevision.created_by),
+        ).where(Paper.id == paper_id)
+    )
+    return result.scalars().unique().one_or_none()
+
+
 @router.get("/", response_model=List[PaperResponse])
 async def get_papers(
     domain: Optional[str] = None,
@@ -137,7 +160,10 @@ async def get_papers(
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve papers with optional domain filter and sorting."""
-    query = select(Paper).options(joinedload(Paper.submitter))
+    query = select(Paper).options(
+        joinedload(Paper.submitter),
+        joinedload(Paper.revisions).joinedload(PaperRevision.created_by),
+    )
 
     if domain:
         d = _normalize_domain(domain)
@@ -163,7 +189,7 @@ async def get_papers(
 
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
-    papers = result.scalars().all()
+    papers = result.scalars().unique().all()
 
     # Batch-fetch comment counts for all papers
     paper_ids = [p.id for p in papers]
@@ -249,10 +275,13 @@ async def create_paper(
         },
     )
     await db.commit()
-    await db.refresh(paper)
+    response_paper = await _load_paper_for_response(db, paper.id)
     await _trigger_paper_embedding_refresh(paper.id, paper_in.abstract)
 
-    return _paper_to_response(paper, actor.actor_type.value, actor.name)
+    if not response_paper:
+        raise HTTPException(status_code=404, detail="Paper not found after creation")
+
+    return _paper_to_response(response_paper, actor.actor_type.value, actor.name)
 
 
 @router.post("/ingest", response_model=WorkflowTriggerResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -380,8 +409,10 @@ async def create_paper_revision(
     await db.flush()
     await db.refresh(revision)
 
-    domain_result = await db.execute(select(Domain).where(Domain.name == paper.domain))
-    domain_obj = domain_result.scalar_one_or_none()
+    domain_obj = None
+    if paper.domains:
+        domain_result = await db.execute(select(Domain).where(Domain.name == paper.domains[0]))
+        domain_obj = domain_result.scalar_one_or_none()
 
     await emit_event(
         db,
@@ -394,7 +425,7 @@ async def create_paper_revision(
             "paper_id": str(paper.id),
             "version": revision.version,
             "title": revision.title,
-            "domain": paper.domain,
+            "domains": paper.domains,
             "changelog_length": len(revision.changelog) if revision.changelog else 0,
         },
     )
@@ -408,10 +439,7 @@ async def create_paper_revision(
 @router.get("/{paper_id}", response_model=PaperResponse)
 async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Get a specific paper by ID."""
-    result = await db.execute(
-        select(Paper).options(joinedload(Paper.submitter)).where(Paper.id == paper_id)
-    )
-    paper = result.scalar_one_or_none()
+    paper = await _load_paper_for_response(db, paper_id)
 
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -448,12 +476,15 @@ async def update_paper(
             setattr(paper, field, value)
 
     await db.commit()
-    await db.refresh(paper)
+    response_paper = await _load_paper_for_response(db, paper.id)
+
+    if not response_paper:
+        raise HTTPException(status_code=404, detail="Paper not found after update")
 
     return _paper_to_response(
-        paper,
-        paper.submitter.actor_type.value if paper.submitter else "unknown",
-        paper.submitter.name if paper.submitter else None,
+        response_paper,
+        response_paper.submitter.actor_type.value if response_paper.submitter else "unknown",
+        response_paper.submitter.name if response_paper.submitter else None,
     )
 
 
@@ -496,10 +527,13 @@ async def upload_paper_pdf(
         Path(tmp_path).unlink(missing_ok=True)
 
     await db.commit()
-    await db.refresh(paper)
+    response_paper = await _load_paper_for_response(db, paper.id)
+
+    if not response_paper:
+        raise HTTPException(status_code=404, detail="Paper not found after upload")
 
     return _paper_to_response(
-        paper,
-        paper.submitter.actor_type.value if paper.submitter else "unknown",
-        paper.submitter.name if paper.submitter else None,
+        response_paper,
+        response_paper.submitter.actor_type.value if response_paper.submitter else "unknown",
+        response_paper.submitter.name if response_paper.submitter else None,
     )

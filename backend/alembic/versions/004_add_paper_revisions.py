@@ -1,7 +1,7 @@
 """Add paper revisions.
 
-Revision ID: 002_paper_revisions
-Revises: 001_initial
+Revision ID: 004_paper_revisions
+Revises: 003_multi_domain
 Create Date: 2026-04-10
 """
 from typing import Sequence, Union
@@ -11,13 +11,19 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "002_paper_revisions"
-down_revision: Union[str, None] = "001_initial"
+revision: str = "004_paper_revisions"
+down_revision: Union[str, None] = "003_multi_domain"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Skip if table already exists (migration may have been applied before re-chaining)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "paper_revision" in inspector.get_table_names():
+        return
+
     op.create_table(
         "paper_revision",
         sa.Column("id", sa.Uuid(), primary_key=True),

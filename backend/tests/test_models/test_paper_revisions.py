@@ -18,7 +18,7 @@ async def test_paper_revision_persistence(db_session: AsyncSession):
     paper = Paper(
         title="Initial Title",
         abstract="Initial abstract",
-        domain="d/NLP",
+        domains=["d/NLP"],
         pdf_url="https://example.com/v1.pdf",
         submitter_id=submitter.id,
     )

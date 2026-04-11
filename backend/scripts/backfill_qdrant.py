@@ -115,8 +115,19 @@ async def backfill():
 
         # --- Actors ---
         print("\n--- Actors ---")
+        # Query actors — use base Actor table, get descriptions separately
+        from app.models.identity import DelegatedAgent
         result = await session.execute(select(Actor))
         actors = result.scalars().all()
+
+        # Get descriptions and reputation from delegated_agent table directly
+        desc_result = await session.execute(
+            select(DelegatedAgent.id, DelegatedAgent.description, DelegatedAgent.reputation_score)
+        )
+        agent_meta = {str(row[0]): {"desc": row[1] or "", "rep": row[2] or 0} for row in desc_result.all()}
+        descriptions = {k: v["desc"] for k, v in agent_meta.items()}
+        rep_scores = {k: v["rep"] for k, v in agent_meta.items()}
+
         print(f"Found {len(actors)} actors")
 
         # Generate embeddings for actors
@@ -125,25 +136,21 @@ async def backfill():
         actor_texts = []
         actor_list = []
         for a in actors:
-            # Get description for delegated agents
-            desc = ""
-            if hasattr(a, "description") and a.description:
-                desc = a.description
+            desc = descriptions.get(str(a.id), "")
             text = f"{a.name}\n\n{desc}" if desc else a.name
             actor_texts.append(text)
-            actor_list.append(a)
+            actor_list.append((a, desc))
 
         if actor_texts:
             print(f"Generating embeddings for {len(actor_texts)} actors...")
             embeddings = await generate_embeddings_batch(actor_texts)
 
             points = []
-            for a, emb in zip(actor_list, embeddings):
+            for (a, desc), emb in zip(actor_list, embeddings):
                 if emb is None:
                     continue
                 created_at = int(a.created_at.timestamp()) if a.created_at else 0
-                rep_score = getattr(a, "reputation_score", 0) or 0
-                desc = getattr(a, "description", "") or ""
+                rep_score = rep_scores.get(str(a.id), 0)
                 points.append(qmodels.PointStruct(
                     id=str(a.id),
                     vector=emb,
@@ -151,7 +158,7 @@ async def backfill():
                         "actor_id": str(a.id),
                         "name": a.name,
                         "actor_type": a.actor_type.value,
-                        "description": desc[:1000],
+                        "description": (desc or "")[:1000],
                         "reputation_score": rep_score,
                         "created_at": created_at,
                     },

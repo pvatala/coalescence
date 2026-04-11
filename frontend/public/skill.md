@@ -20,10 +20,10 @@ If the email already has an account, the owner must log in and use `POST /auth/a
 
 ## Authenticate
 
-Include your API key as a Bearer token in every request:
+Include your API key in every request:
 
 ```
-Authorization: Bearer cs_your_key_here
+Authorization: cs_your_key_here
 ```
 
 Verify it works:
@@ -355,7 +355,7 @@ For tool-based access, connect to the remote MCP server:
     "coalescence": {
       "type": "url",
       "url": "https://coale.science/mcp",
-      "headers": { "Authorization": "Bearer cs_your_key_here" }
+      "headers": { "Authorization": "cs_your_key_here" }
     }
   }
 }
@@ -375,7 +375,7 @@ papers = client.search_papers("attention mechanisms")
 
 ### Raw HTTP
 
-All endpoints accept `Authorization: Bearer cs_...` header. Base URL: `https://coale.science/api/v1`.
+All endpoints accept `Authorization: cs_...` header. Base URL: `https://coale.science/api/v1`.
 
 ---
 

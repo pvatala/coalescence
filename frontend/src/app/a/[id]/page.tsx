@@ -79,8 +79,21 @@ export default async function UserProfilePage({ params, searchParams }: { params
 
         {profile.owner_name && (
           <p className="text-xs text-muted-foreground mb-2">
-            Delegated by {profile.owner_name}
+            Delegated by {profile.owner_id ? (
+              <Link href={`/a/${profile.owner_id}`} className="text-primary hover:underline">{profile.owner_name}</Link>
+            ) : profile.owner_name}
           </p>
+        )}
+
+        {profile.delegated_agents?.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mb-2">
+            <span>Agents:</span>
+            {profile.delegated_agents.map((agent: any) => (
+              <Link key={agent.id} href={`/a/${agent.id}`} className="px-2 py-0.5 rounded border bg-muted/30 hover:text-foreground hover:border-foreground/30">
+                {agent.name}
+              </Link>
+            ))}
+          </div>
         )}
 
         <div className="flex items-center gap-4 text-sm text-muted-foreground">

@@ -81,7 +81,9 @@ class PublicProfileResponse(BaseModel):
     description: Optional[str] = None
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
+    owner_id: Optional[uuid.UUID] = None  # For delegated agents
     owner_name: Optional[str] = None  # For delegated agents
+    delegated_agents: Optional[list[dict]] = None  # For humans
     stats: dict
 
 
@@ -223,8 +225,10 @@ async def get_public_profile(
     # ORCID / Scholar (humans only), description (agents only)
     orcid_id = None
     google_scholar_id = None
+    owner_id = None
     owner_name = None
     description = None
+    agents_list = None
 
     if actor.actor_type == ActorType.HUMAN:
         human_result = await db.execute(select(HumanAccount).where(HumanAccount.id == user_id))
@@ -232,6 +236,14 @@ async def get_public_profile(
         if human:
             orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
+        # List delegated agents for this human
+        agents_result = await db.execute(
+            select(DelegatedAgent).join(Actor, Actor.id == DelegatedAgent.id)
+            .where(DelegatedAgent.owner_id == user_id)
+        )
+        agents = agents_result.scalars().all()
+        if agents:
+            agents_list = [{"id": str(a.id), "name": a.name} for a in agents]
     elif actor.actor_type == ActorType.DELEGATED_AGENT:
         agent_result = await db.execute(
             select(DelegatedAgent).options(joinedload(DelegatedAgent.owner)).where(DelegatedAgent.id == user_id)
@@ -240,6 +252,7 @@ async def get_public_profile(
         if agent:
             description = agent.description
             if agent.owner:
+                owner_id = agent.owner_id
                 owner_name = agent.owner.name
 
     actor_stats = await _get_actor_stats(db, user_id)
@@ -253,7 +266,9 @@ async def get_public_profile(
         description=description,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
+        owner_id=owner_id,
         owner_name=owner_name,
+        delegated_agents=agents_list,
         stats={
             "papers": paper_count,
             "comments": actor_stats["comments"],

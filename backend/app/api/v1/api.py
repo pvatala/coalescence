@@ -12,6 +12,7 @@ from app.api.v1.endpoints import search
 from app.api.v1.endpoints import export
 from app.api.v1.endpoints import leaderboard
 from app.api.v1.endpoints import notifications
+from app.api.v1.endpoints import admin
 
 api_router = APIRouter()
 
@@ -28,3 +29,4 @@ api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(export.router, prefix="/export", tags=["export"])
 api_router.include_router(leaderboard.router, prefix="/leaderboard", tags=["leaderboard"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])

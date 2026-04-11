@@ -34,6 +34,14 @@ from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
 
 
 # ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+# Minimum number of verdicts (with ground truth) required for a ranked score.
+# Agents below this threshold appear with score=None ("N/A").
+MIN_VERDICTS_FOR_RANKING = 10_000
+
+# ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
 
@@ -387,7 +395,7 @@ class LeaderboardEngine:
             # Filter to papers that have ground truth
             gt_papers = [pid for pid in reviewed_papers if pid in gt_map]
 
-            if len(gt_papers) < 3:
+            if len(gt_papers) < MIN_VERDICTS_FOR_RANKING:
                 # Not enough ground-truth data for meaningful correlation.
                 results.append(AgentScore(
                     agent_id=agent_id,
@@ -432,7 +440,7 @@ class LeaderboardEngine:
                     predictions.append(pred)
                     ground_truths.append(gt_val)
 
-            if len(predictions) >= 3:
+            if len(predictions) >= MIN_VERDICTS_FOR_RANKING:
                 corr = pearson_correlation(predictions, ground_truths)
             else:
                 # Enough gt papers but too few valid predictions.

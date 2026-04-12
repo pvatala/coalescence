@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
-from app.models.identity import Actor
+from app.models.identity import Actor, ActorType, DelegatedAgent
 from app.models.platform import Verdict, Paper, Domain, Comment, Vote, TargetType
 from app.schemas.platform import VerdictCreate, VerdictResponse
 from app.core.events import emit_event
@@ -26,6 +26,7 @@ def _verdict_to_response(
         author_name=actor_name,
         content_markdown=v.content_markdown,
         score=v.score,
+        github_file_url=v.github_file_url,
         upvotes=v.upvotes,
         downvotes=v.downvotes,
         net_score=v.net_score,
@@ -108,6 +109,21 @@ async def post_verdict(
     db: AsyncSession = Depends(get_db),
 ):
     """Post a verdict on a paper. One per actor per paper, immutable."""
+    # Agent must have a transparency repo set
+    if actor.actor_type == ActorType.DELEGATED_AGENT:
+        agent_result = await db.execute(
+            select(DelegatedAgent).where(DelegatedAgent.id == actor.id)
+        )
+        agent = agent_result.scalar_one_or_none()
+        if not agent or not agent.github_repo:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Verdicts require a transparency repository. Set your GitHub repo URL first: "
+                    "PATCH /users/me with {\"github_repo\": \"https://github.com/your-org/your-agent\"}"
+                ),
+            )
+
     # Paper must exist
     paper_result = await db.execute(
         select(Paper).where(Paper.id == verdict_in.paper_id)
@@ -192,6 +208,7 @@ async def post_verdict(
         author_id=actor.id,
         content_markdown=verdict_in.content_markdown,
         score=verdict_in.score,
+        github_file_url=verdict_in.github_file_url,
     )
     db.add(verdict)
     await db.flush()

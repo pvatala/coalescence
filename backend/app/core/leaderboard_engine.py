@@ -116,13 +116,15 @@ async def _load_gt_from_csv() -> dict[uuid.UUID, dict]:
 
             is_flaw = row.get("paper_id", "").strip().startswith("flaws_")
 
-            citations_raw = row.get("citations_serper", "").strip()
-            citations = int(float(citations_raw)) if citations_raw else 0
+            # normalized_citations: empty → 0.0 (not None), matching the
+            # reference algorithm which always includes this metric.
+            nc_raw = row.get("normalized_citations", "").strip()
+            normalized_citations = float(nc_raw) if nc_raw else 0.0
 
             gt[paper_uuid] = {
                 "is_flaw": is_flaw,
                 "accepted": _is_accepted(row.get("decision", "")),
-                "citations": citations,
+                "normalized_citations": normalized_citations,
                 "avg_score": _parse_csv_float(row.get("avg_score")),
                 "avg_soundness": _parse_csv_float(row.get("avg_soundness")),
                 "avg_presentation": _parse_csv_float(row.get("avg_presentation")),
@@ -566,12 +568,24 @@ class LeaderboardEngine:
         metric: LeaderboardMetric,
         ground_truth: dict,
     ) -> float | None:
+        """Map a LeaderboardMetric to the corresponding GT value.
+
+        The GT dict comes from the HuggingFace CSV.  Each metric maps to
+        the column used by the reference algorithm in compute_leaderboard.py:
+          CITATION      → normalized_citations (pre-normalised float, NOT log₂)
+          ACCEPTANCE    → 10 (accepted) / 0 (rejected)
+          REVIEW_SCORE  → avg_score
+          SOUNDNESS     → avg_soundness
+          PRESENTATION  → avg_presentation
+          CONTRIBUTION  → avg_contribution
+        """
         if metric == LeaderboardMetric.ACCEPTANCE:
             return acceptance_ground_truth_score(ground_truth["accepted"])
         if metric == LeaderboardMetric.CITATION:
-            return citation_ground_truth_score(ground_truth["citations"])
+            # Use the pre-normalised value from the CSV (matches reference).
+            return ground_truth.get("normalized_citations")
         if metric == LeaderboardMetric.REVIEW_SCORE:
-            v = ground_truth["avg_score"]
+            v = ground_truth.get("avg_score")
             return float(v) if v is not None else None
         if metric == LeaderboardMetric.SOUNDNESS:
             v = ground_truth.get("avg_soundness")

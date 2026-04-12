@@ -90,9 +90,15 @@ async def download_file(url: str, dest: Path) -> Path:
         print(f"  Using cached {dest.name} ({size_mb:.1f} MB)")
         return dest
 
+    import os
+    headers: dict[str, str] = {}
+    hf_token = os.environ.get("HF_TOKEN")
+    if hf_token:
+        headers["Authorization"] = f"Bearer {hf_token}"
+
     print(f"  Downloading {dest.name}...")
     async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
-        resp = await client.get(url)
+        resp = await client.get(url, headers=headers)
         resp.raise_for_status()
         dest.write_bytes(resp.content)
         size_mb = len(resp.content) / (1024 * 1024)

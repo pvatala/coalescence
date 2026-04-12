@@ -1,14 +1,16 @@
 'use client';
 
-import { Suspense } from 'react';
-import Link from 'next/link';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Medal } from 'lucide-react';
-import { useStandingsData, STANDINGS_API } from './hooks/useStandingsData';
+import { useStandingsData } from './hooks/useStandingsData';
 import { useStandingsSelection } from './hooks/useStandingsSelection';
+import { useStandingsFilters } from './hooks/useStandingsFilters';
 import { GateStrip } from './gate-strip/GateStrip';
 import { MasterList } from './master-list/MasterList';
+import { DetailPane } from './detail-pane/DetailPane';
+import { StandingsLayout } from './StandingsLayout';
 
-function SkeletonTable() {
+function SkeletonBlock() {
   return (
     <div className="rounded-lg border border-border p-4">
       <div className="animate-pulse space-y-2">
@@ -20,14 +22,38 @@ function SkeletonTable() {
   );
 }
 
-// Inner component that uses useSearchParams — wrapped in Suspense per the
-// Next.js 14 app-router constraint for URL-synced client components.
+// Inner component that uses useSearchParams; wrapped in Suspense per the
+// Next.js 14 app-router constraint.
 function StandingsInner() {
   const { data, error } = useStandingsData();
   const { selectedAgentId, setAgent } = useStandingsSelection();
+  const filterResult = useStandingsFilters(data?.entries ?? []);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  // Default selection: first passer, else first-by-distance. Written to
+  // URL only when the param is absent so sharable links win.
+  useEffect(() => {
+    if (!data || selectedAgentId) return;
+    const entries = data.entries;
+    if (!entries.length) return;
+    const first = entries.find(e => e.passed_gate) ?? entries[0];
+    if (first) setAgent(first.agent_id);
+  }, [data, selectedAgentId, setAgent]);
+
+  const selectedEntry = useMemo(() => {
+    if (!data || !selectedAgentId) return null;
+    return data.entries.find(e => e.agent_id === selectedAgentId) ?? null;
+  }, [data, selectedAgentId]);
+
+  const handleSelect = (agentId: string) => {
+    setAgent(agentId);
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setMobileDrawerOpen(true);
+    }
+  };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-4">
       <div>
         <h1 className="font-heading text-3xl font-bold flex items-center gap-2">
           <Medal className="h-7 w-7 text-amber-600" />
@@ -48,25 +74,33 @@ function StandingsInner() {
       )}
 
       {data === null && !error ? (
-        <SkeletonTable />
+        <SkeletonBlock />
       ) : data ? (
-        <>
-          <GateStrip
-            data={data}
-            selectedAgentId={selectedAgentId}
-            onSelect={setAgent}
-          />
-          <MasterList
-            entries={data.entries}
-            selectedAgentId={selectedAgentId}
-            onSelect={setAgent}
-          />
-          <p className="text-xs text-muted-foreground">
-            Source: <code className="px-1 rounded bg-muted">{STANDINGS_API}</code>. Trust
-            via the same community_trust scorer as the Trusted Reviewers tab on{' '}
-            <Link href="/metrics" className="underline hover:text-foreground">Metrics</Link>.
-          </p>
-        </>
+        <StandingsLayout
+          gateStrip={
+            <GateStrip
+              data={data}
+              selectedAgentId={selectedAgentId}
+              onSelect={handleSelect}
+            />
+          }
+          masterList={
+            <MasterList
+              data={data}
+              entries={filterResult.filteredEntries}
+              selectedAgentId={selectedAgentId}
+              onSelect={handleSelect}
+              filters={filterResult.filters}
+              setSort={filterResult.setSort}
+              toggleReason={filterResult.toggleReason}
+              setPassersOnly={filterResult.setPassersOnly}
+              setQuery={filterResult.setQuery}
+            />
+          }
+          detailPane={<DetailPane entry={selectedEntry} data={data} />}
+          isDetailOpenMobile={mobileDrawerOpen}
+          onCloseDetail={() => setMobileDrawerOpen(false)}
+        />
       ) : null}
     </div>
   );
@@ -74,7 +108,7 @@ function StandingsInner() {
 
 export function StandingsContent() {
   return (
-    <Suspense fallback={<SkeletonTable />}>
+    <Suspense fallback={<SkeletonBlock />}>
       <StandingsInner />
     </Suspense>
   );

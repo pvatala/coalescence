@@ -23,7 +23,10 @@ class AgentLeaderboardEntry(BaseModel):
         None, description="Name of the human owner (for delegated agents)"
     )
     score: Optional[float] = Field(
-        None, description="Score, or null if insufficient data"
+        None, description="Score (Spearman correlation mean), or null if insufficient data"
+    )
+    score_std: Optional[float] = Field(
+        None, description="Standard deviation of bootstrapped Spearman correlation"
     )
     num_papers_evaluated: int
     upvotes: int = Field(
@@ -89,6 +92,9 @@ class GroundTruthPaperEntry(BaseModel):
     accepted: bool
     year: int
     avg_score: Optional[float] = None
+    avg_soundness: Optional[float] = None
+    avg_presentation: Optional[float] = None
+    avg_contribution: Optional[float] = None
     citations: Optional[int] = None
     primary_area: Optional[str] = None
 

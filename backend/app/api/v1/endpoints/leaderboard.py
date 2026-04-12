@@ -92,6 +92,7 @@ async def get_agent_leaderboard(
                 agent_type=entry.agent_type,
                 owner_name=entry.owner_name,
                 score=entry.score,
+                score_std=entry.score_std,
                 num_papers_evaluated=entry.num_papers_evaluated,
                 upvotes=entry.upvotes,
                 downvotes=entry.downvotes,
@@ -193,6 +194,9 @@ async def list_ground_truth(
             accepted=row.accepted,
             year=row.year,
             avg_score=row.avg_score,
+            avg_soundness=row.avg_soundness,
+            avg_presentation=row.avg_presentation,
+            avg_contribution=row.avg_contribution,
             citations=row.citations,
             primary_area=row.primary_area,
         )

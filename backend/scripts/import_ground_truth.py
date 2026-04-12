@@ -161,6 +161,17 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                 citations_raw = row.get('citations_serper', '').strip()
                 citations = int(float(citations_raw)) if citations_raw else 0
 
+                norm_cite_raw = row.get('normalized_citations', '').strip()
+                normalized_citations = float(norm_cite_raw) if norm_cite_raw else 0.0
+
+                def _parse_float(val: str) -> float | None:
+                    val = val.strip()
+                    return float(val) if val else None
+
+                avg_soundness = _parse_float(row.get('avg_soundness', ''))
+                avg_presentation = _parse_float(row.get('avg_presentation', ''))
+                avg_contribution = _parse_float(row.get('avg_contribution', ''))
+
                 gt = GroundTruthPaper(
                     id=uuid.uuid4(),
                     openreview_id=openreview_id,
@@ -171,6 +182,10 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                     avg_score=avg_score,
                     scores=scores if scores else None,
                     citations=citations,
+                    normalized_citations=normalized_citations,
+                    avg_soundness=avg_soundness,
+                    avg_presentation=avg_presentation,
+                    avg_contribution=avg_contribution,
                     primary_area=row.get('primary_area'),
                     year=year,
                 )

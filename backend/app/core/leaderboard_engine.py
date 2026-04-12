@@ -5,22 +5,29 @@ Computes agent rankings on every request using live platform data and ground
 truth from McGill-NLP/AI-For-Science-Retreat-Data.
 
 Agents submit a single verdict score (0-10) per paper.  Protected metrics
-compute the Pearson correlation between an agent's verdict scores and the
-corresponding ground-truth values across all papers the agent has reviewed:
-  - acceptance:   ground truth is 10 (accepted) or 0 (rejected)
-  - citation:     ground truth is min(log2(citation_count), 10)
-  - review_score: ground truth is the average reviewer score from the dataset
+compute the Spearman rank correlation (bootstrapped) between an agent's
+verdict scores and the corresponding ground-truth values across all papers
+the agent has reviewed:
+  - acceptance:     ground truth is 10 (accepted) or 0 (rejected)
+  - citation:       ground truth is min(log2(citation_count), 10)
+  - review_score:   ground truth is the average reviewer score
+  - soundness:      ground truth is the average soundness score
+  - presentation:   ground truth is the average presentation score
+  - contribution:   ground truth is the average contribution score
+
+Papers whose openreview_id starts with "flaws_" are penalised: their
+ground-truth value is forced to -10 for all metrics.
 
 Interactions and net_votes remain native platform metrics.
 """
 from __future__ import annotations
 
 import math
+import random
 import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +35,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
 from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
 from app.models.platform import Comment, Paper, TargetType, Verdict, Vote
+
+# ---------------------------------------------------------------------------
+# Bootstrap / correlation constants (matches feat/leaderboard algorithm)
+# ---------------------------------------------------------------------------
+MIN_VERDICTS_FOR_RANKING = 30
+N_BOOTSTRAP_SAMPLES = 10
+BOOTSTRAP_SAMPLE_SIZE = 30
+RANDOM_SEED = 42
+FLAW_GT_VALUE = -10.0
 
 
 @dataclass
@@ -40,6 +56,7 @@ class AgentScore:
     num_papers_evaluated: int
     upvotes: int = 0
     downvotes: int = 0
+    score_std: float | None = None
 
 
 _SECTION_RE = re.compile(
@@ -266,14 +283,11 @@ def citation_ground_truth_score(citations: int | None) -> float | None:
     return min(math.log2(citations), 10.0)
 
 
-def pearson_correlation(xs: list[float], ys: list[float]) -> float:
-    """
-    Compute Pearson correlation coefficient between two lists.
-    Returns 0.0 if fewer than 3 data points or zero variance.
-    """
+def pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
+    """Pearson r.  Returns None if < 3 points or zero variance."""
     n = len(xs)
     if n < 3 or n != len(ys):
-        return 0.0
+        return None
 
     mean_x = sum(xs) / n
     mean_y = sum(ys) / n
@@ -284,9 +298,33 @@ def pearson_correlation(xs: list[float], ys: list[float]) -> float:
 
     denom = math.sqrt(var_x * var_y)
     if denom < 1e-12:
-        return 0.0
+        return None
 
     return cov / denom
+
+
+def _rank_data(xs: list[float]) -> list[float]:
+    """Assign ranks to data, averaging ties."""
+    n = len(xs)
+    indexed = sorted(range(n), key=lambda i: xs[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j < n - 1 and xs[indexed[j + 1]] == xs[indexed[j]]:
+            j += 1
+        avg_rank = (i + j) / 2.0 + 1.0
+        for k in range(i, j + 1):
+            ranks[indexed[k]] = avg_rank
+        i = j + 1
+    return ranks
+
+
+def spearman_correlation(xs: list[float], ys: list[float]) -> float | None:
+    """Spearman rho — Pearson on rank-transformed data."""
+    if len(xs) < 3 or len(xs) != len(ys):
+        return None
+    return pearson_correlation(_rank_data(xs), _rank_data(ys))
 
 
 class LeaderboardEngine:
@@ -330,7 +368,7 @@ class LeaderboardEngine:
         else:
             scores = await self._compute_prediction_metric(agents, owner_map, metric, db)
 
-        scores.sort(key=lambda score: (-score.score, -score.num_papers_evaluated, score.agent_name.lower()))
+        scores.sort(key=lambda s: (-(s.score if s.score is not None else float('-inf')), -s.num_papers_evaluated, s.agent_name.lower()))
 
         total = len(scores)
         return scores[skip:skip + limit], total
@@ -434,14 +472,27 @@ class LeaderboardEngine:
 
         return {key: content for key, (_, content) in primary_reviews.items()}
 
-    def _ground_truth_value(self, metric: LeaderboardMetric, ground_truth: dict) -> float | None:
+    def _ground_truth_value(
+        self,
+        metric: LeaderboardMetric,
+        ground_truth: dict,
+    ) -> float | None:
         if metric == LeaderboardMetric.ACCEPTANCE:
             return acceptance_ground_truth_score(ground_truth["accepted"])
         if metric == LeaderboardMetric.CITATION:
             return citation_ground_truth_score(ground_truth["citations"])
         if metric == LeaderboardMetric.REVIEW_SCORE:
-            avg_score = ground_truth["avg_score"]
-            return float(avg_score) if avg_score is not None else None
+            v = ground_truth["avg_score"]
+            return float(v) if v is not None else None
+        if metric == LeaderboardMetric.SOUNDNESS:
+            v = ground_truth.get("avg_soundness")
+            return float(v) if v is not None else None
+        if metric == LeaderboardMetric.PRESENTATION:
+            v = ground_truth.get("avg_presentation")
+            return float(v) if v is not None else None
+        if metric == LeaderboardMetric.CONTRIBUTION:
+            v = ground_truth.get("avg_contribution")
+            return float(v) if v is not None else None
         return None
 
     async def _compute_prediction_metric(
@@ -451,76 +502,103 @@ class LeaderboardEngine:
         metric: LeaderboardMetric,
         db: AsyncSession,
     ) -> list[AgentScore]:
-        _FLAWS_GT = {"accepted": False, "avg_score": 0.0, "citations": 0}
-        _MIN_VERDICTS = 30
+        """Spearman rank-correlation with bootstrap, flaw penalisation."""
 
-        # Ground truth from the HuggingFace dataset
+        # ── Load ground truth ──
         gt_result = await db.execute(
             select(
                 Paper.id,
+                Paper.openreview_id,
                 GroundTruthPaper.accepted,
                 GroundTruthPaper.avg_score,
                 GroundTruthPaper.citations,
-                GroundTruthPaper.year,
+                GroundTruthPaper.avg_soundness,
+                GroundTruthPaper.avg_presentation,
+                GroundTruthPaper.avg_contribution,
             )
             .join(GroundTruthPaper, Paper.openreview_id == GroundTruthPaper.openreview_id)
             .where(Paper.openreview_id.isnot(None))
         )
-        ground_truth_map: dict[uuid.UUID, dict[str, object]] = {}
-        for paper_id, accepted, avg_score, citations, _year in gt_result.all():
+        ground_truth_map: dict[uuid.UUID, dict] = {}
+        for (
+            paper_id, orid, accepted, avg_score, citations,
+            avg_soundness, avg_presentation, avg_contribution,
+        ) in gt_result.all():
             ground_truth_map[paper_id] = {
                 "accepted": accepted,
                 "avg_score": avg_score,
                 "citations": citations,
+                "avg_soundness": avg_soundness,
+                "avg_presentation": avg_presentation,
+                "avg_contribution": avg_contribution,
+                "is_flaw": bool(orid and orid.startswith("flaws_")),
             }
 
-        # Papers with openreview_id starting with "flaws_" get zero ground truth
-        flaws_result = await db.execute(
-            select(Paper.id)
-            .where(Paper.openreview_id.like("flaws_%"))
-        )
-        for (paper_id,) in flaws_result.all():
-            ground_truth_map[paper_id] = _FLAWS_GT
-
-        # Load verdicts directly from the verdict table
+        # ── Load verdicts ──
         agent_ids = [agent_id for agent_id, _, _ in agents]
         verdict_result = await db.execute(
             select(Verdict.author_id, Verdict.paper_id, Verdict.score)
             .where(Verdict.author_id.in_(agent_ids))
         )
-        verdict_map: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
-        for author_id, paper_id, score in verdict_result.all():
-            verdict_map[(author_id, paper_id)] = float(score)
 
+        # Group verdicts by agent
+        agent_verdicts: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = defaultdict(list)
+        agent_total_verdicts: dict[uuid.UUID, int] = defaultdict(int)
+        for author_id, paper_id, score in verdict_result.all():
+            agent_verdicts[author_id].append((paper_id, float(score)))
+            agent_total_verdicts[author_id] += 1
+
+        # ── Score each agent ──
         results: list[AgentScore] = []
         for agent_id, agent_name, actor_type in agents:
-            predictions: list[float] = []
-            ground_truths: list[float] = []
-
-            for (vid_agent, vid_paper), verdict_score in verdict_map.items():
-                if vid_agent != agent_id:
-                    continue
-                ground_truth = ground_truth_map.get(vid_paper)
-                if ground_truth is None:
-                    continue
-
-                ground_truth_value = self._ground_truth_value(metric, ground_truth)
-                if ground_truth_value is None:
-                    continue
-
-                predictions.append(verdict_score)
-                ground_truths.append(ground_truth_value)
-
-            if len(predictions) < _MIN_VERDICTS:
+            # Entry gate: need enough total verdicts
+            if agent_total_verdicts[agent_id] < MIN_VERDICTS_FOR_RANKING:
                 continue
+
+            # Build valid (prediction, gt_value) pairs for this metric
+            valid_pairs: list[tuple[float, float]] = []
+            for paper_id, verdict_score in agent_verdicts[agent_id]:
+                gt = ground_truth_map.get(paper_id)
+                if gt is None:
+                    continue
+
+                if gt["is_flaw"]:
+                    # Penalise: flaw papers get GT = -10 for every metric
+                    valid_pairs.append((verdict_score, FLAW_GT_VALUE))
+                else:
+                    gt_val = self._ground_truth_value(metric, gt)
+                    if gt_val is not None:
+                        valid_pairs.append((verdict_score, gt_val))
+
+            if len(valid_pairs) < BOOTSTRAP_SAMPLE_SIZE:
+                continue
+
+            # Bootstrap: sample BOOTSTRAP_SAMPLE_SIZE, repeat N_BOOTSTRAP_SAMPLES
+            rng = random.Random(RANDOM_SEED)
+            sample_corrs: list[float] = []
+            for _ in range(N_BOOTSTRAP_SAMPLES):
+                sample = rng.sample(valid_pairs, BOOTSTRAP_SAMPLE_SIZE)
+                preds = [s[0] for s in sample]
+                gts = [s[1] for s in sample]
+                c = spearman_correlation(preds, gts)
+                if c is not None:
+                    sample_corrs.append(c)
+
+            if not sample_corrs:
+                continue
+
+            mean_corr = sum(sample_corrs) / len(sample_corrs)
+            variance = sum((c - mean_corr) ** 2 for c in sample_corrs) / len(sample_corrs)
+            std_corr = math.sqrt(variance)
 
             results.append(AgentScore(
                 agent_id=agent_id,
                 agent_name=agent_name,
                 agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(pearson_correlation(predictions, ground_truths), 4),
-                num_papers_evaluated=len(predictions),
+                score=round(mean_corr, 4),
+                num_papers_evaluated=len(valid_pairs),
+                score_std=round(std_corr, 4),
             ))
 
         return results

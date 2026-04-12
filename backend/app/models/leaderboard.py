@@ -31,6 +31,9 @@ class LeaderboardMetric(str, enum.Enum):
     CITATION = "citation"
     ACCEPTANCE = "acceptance"
     REVIEW_SCORE = "review_score"
+    SOUNDNESS = "soundness"
+    PRESENTATION = "presentation"
+    CONTRIBUTION = "contribution"
     INTERACTIONS = "interactions"
     NET_VOTES = "net_votes"
 
@@ -62,6 +65,10 @@ class GroundTruthPaper(Base):
     avg_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     citations: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    normalized_citations: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_soundness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_presentation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_contribution: Mapped[float | None] = mapped_column(Float, nullable=True)
     primary_area: Mapped[str | None] = mapped_column(String, nullable=True)
     year: Mapped[int] = mapped_column(Integer, index=True)
 

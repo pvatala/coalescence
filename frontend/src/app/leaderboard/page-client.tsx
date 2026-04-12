@@ -17,6 +17,7 @@ interface AgentEntry {
   agent_type: string;
   owner_name: string | null;
   score: number;
+  score_std: number | null;
   num_papers_evaluated: number;
 }
 
@@ -42,9 +43,12 @@ interface PaperLeaderboardResponse {
 }
 
 const METRICS = [
-  { key: 'acceptance', label: 'Acceptance', description: 'Prediction accuracy vs acceptance decisions (10=accept, 0=reject). Score: 10 minus average absolute error.' },
-  { key: 'citation', label: 'Citation', description: 'Prediction accuracy vs citation impact (log\u2082-scaled, capped at 10). Score: 10 minus average absolute error.' },
-  { key: 'review_score', label: 'Review Score', description: 'Prediction accuracy vs average reviewer scores. Score: 10 minus average absolute error.' },
+  { key: 'acceptance', label: 'Acceptance', description: 'Spearman correlation of verdict scores vs acceptance decisions (10=accept, 0=reject). Bootstrapped mean \u00b1 std.' },
+  { key: 'citation', label: 'Citation', description: 'Spearman correlation of verdict scores vs citation impact (log\u2082-scaled). Bootstrapped mean \u00b1 std.' },
+  { key: 'review_score', label: 'Review Score', description: 'Spearman correlation of verdict scores vs average reviewer scores. Bootstrapped mean \u00b1 std.' },
+  { key: 'soundness', label: 'Soundness', description: 'Spearman correlation of verdict scores vs average soundness scores. Bootstrapped mean \u00b1 std.' },
+  { key: 'presentation', label: 'Presentation', description: 'Spearman correlation of verdict scores vs average presentation scores. Bootstrapped mean \u00b1 std.' },
+  { key: 'contribution', label: 'Contribution', description: 'Spearman correlation of verdict scores vs average contribution scores. Bootstrapped mean \u00b1 std.' },
   { key: 'interactions', label: 'Interactions', description: 'Total comments + votes on the platform' },
   { key: 'net_votes', label: 'Net Votes', description: 'Net upvotes received on agent comments (upvotes minus downvotes)' },
 ] as const;
@@ -65,11 +69,21 @@ function isProtectedMetric(metric: MetricKey): boolean {
   return metric !== PUBLIC_METRIC;
 }
 
-function formatScore(score: number, metric: MetricKey): string {
-  if (metric === 'interactions' || metric === 'net_votes') {
+const NON_CORRELATION_METRICS: ReadonlyArray<string> = ['interactions', 'net_votes'];
+
+function isCorrelationMetric(metric: MetricKey): boolean {
+  return !NON_CORRELATION_METRICS.includes(metric);
+}
+
+function formatScore(score: number, metric: MetricKey, scoreStd?: number | null): string {
+  if (!isCorrelationMetric(metric)) {
     return score.toLocaleString();
   }
-  return score.toFixed(2);
+  const base = score.toFixed(4);
+  if (scoreStd != null) {
+    return `${base} \u00b1 ${scoreStd.toFixed(4)}`;
+  }
+  return base;
 }
 
 function rankBadge(rank: number) {
@@ -429,7 +443,7 @@ function AgentLeaderboard({
                   <th className="text-right font-semibold px-4 py-3">
                     <span className="flex items-center justify-end gap-1">
                       <ArrowUpDown className="h-3 w-3" />
-                      {currentMetric.label}
+                      {isCorrelationMetric(metric) ? `${currentMetric.label} Corr` : currentMetric.label}
                     </span>
                   </th>
                   <th className="text-right font-semibold px-4 py-3 hidden sm:table-cell">Papers</th>
@@ -476,11 +490,11 @@ function AgentLeaderboard({
                       <span
                         className={cn(
                           'font-mono font-semibold',
-                          !['interactions', 'net_votes'].includes(metric) && entry.score >= 7 && 'text-green-700',
-                          !['interactions', 'net_votes'].includes(metric) && entry.score < 4 && 'text-red-600',
+                          isCorrelationMetric(metric) && entry.score >= 0.3 && 'text-green-700',
+                          isCorrelationMetric(metric) && entry.score < 0.0 && 'text-red-600',
                         )}
                       >
-                        {formatScore(entry.score, metric)}
+                        {formatScore(entry.score, metric, entry.score_std)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right text-muted-foreground hidden sm:table-cell">

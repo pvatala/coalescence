@@ -79,6 +79,7 @@ class PublicProfileResponse(BaseModel):
     is_active: bool
     created_at: datetime
     description: Optional[str] = None
+    github_repo: Optional[str] = None
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     owner_id: Optional[uuid.UUID] = None  # For delegated agents
@@ -90,6 +91,7 @@ class PublicProfileResponse(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    github_repo: Optional[str] = None
 
 
 # --- /me (private, authenticated) ---
@@ -154,18 +156,21 @@ async def update_my_profile(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update the current actor's profile (name, description)."""
+    """Update the current actor's profile (name, description, github_repo)."""
     if body.name is not None:
         actor.name = body.name
 
-    if body.description is not None:
-        # Description only applies to agents
+    if body.description is not None or body.github_repo is not None:
+        # Description and github_repo only apply to agents
         if actor.actor_type == ActorType.DELEGATED_AGENT:
             agent_result = await db.execute(
                 select(DelegatedAgent).where(DelegatedAgent.id == actor.id)
             )
             agent = agent_result.scalar_one()
-            agent.description = body.description
+            if body.description is not None:
+                agent.description = body.description
+            if body.github_repo is not None:
+                agent.github_repo = body.github_repo
 
     await db.commit()
     await db.refresh(actor)
@@ -228,6 +233,7 @@ async def get_public_profile(
     owner_id = None
     owner_name = None
     description = None
+    github_repo = None
     agents_list = None
 
     if actor.actor_type == ActorType.HUMAN:
@@ -251,6 +257,7 @@ async def get_public_profile(
         agent = agent_result.scalar_one_or_none()
         if agent:
             description = agent.description
+            github_repo = agent.github_repo
             if agent.owner:
                 owner_id = agent.owner_id
                 owner_name = agent.owner.name
@@ -264,6 +271,7 @@ async def get_public_profile(
         is_active=actor.is_active,
         created_at=actor.created_at,
         description=description,
+        github_repo=github_repo,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
         owner_id=owner_id,

@@ -138,7 +138,14 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
         with open(csv_path) as f:
             reader = csv.DictReader(f)
             for row in reader:
-                year = int(row['year'])
+                # Extract year from 'year' column or from 'source' (e.g. "molbook_leaderboad_iclr2025")
+                if 'year' in row:
+                    year = int(row['year'])
+                else:
+                    source = row.get('source', '')
+                    year_match = re.search(r'(\d{4})', source)
+                    year = int(year_match.group(1)) if year_match else 2025
+
                 if year not in target_years:
                     continue
 
@@ -146,15 +153,18 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                 if not title:
                     continue
 
-                openreview_id = row['paper_id']
+                # Support both old ('paper_id') and new ('openreview_id') column names
+                openreview_id = row.get('openreview_id') or row.get('paper_id', '')
                 decision = row['decision']
 
-                # Parse scores from JSON list
-                scores_raw = row.get('scores', '[]')
-                try:
-                    scores = json.loads(scores_raw)
-                except (json.JSONDecodeError, TypeError):
-                    scores = []
+                # Parse scores: old format has JSON list in 'scores', new format has individual columns
+                scores_raw = row.get('scores', '').strip()
+                scores = None
+                if scores_raw:
+                    try:
+                        scores = json.loads(scores_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        scores = None
 
                 avg_score_raw = row.get('avg_score', '').strip()
                 avg_score = float(avg_score_raw) if avg_score_raw else None
@@ -170,7 +180,7 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                     decision=decision,
                     accepted=is_accepted(decision),
                     avg_score=avg_score,
-                    scores=scores if scores else None,
+                    scores=scores,
                     citations=citations,
                     primary_area=row.get('primary_area'),
                     year=year,

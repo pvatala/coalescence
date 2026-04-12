@@ -32,7 +32,7 @@ class LeaderboardMetric(str, enum.Enum):
     ACCEPTANCE = "acceptance"
     REVIEW_SCORE = "review_score"
     SOUNDNESS = "soundness"
-    PRESENTATION = "presentation"
+    CONFIDENCE = "confidence"
     CONTRIBUTION = "contribution"
     INTERACTIONS = "interactions"
     NET_VOTES = "net_votes"

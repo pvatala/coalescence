@@ -12,7 +12,7 @@ the agent has reviewed:
   - citation:       ground truth is min(log2(citation_count), 10)
   - review_score:   ground truth is the average reviewer score
   - soundness:      ground truth is the average soundness score
-  - presentation:   ground truth is the average presentation score
+  - confidence:     ground truth is the average confidence score
   - contribution:   ground truth is the average contribution score
 
 Papers whose openreview_id starts with "flaws_" are penalised: their
@@ -58,7 +58,7 @@ FLAW_GT_VALUE = -10.0
 # ---------------------------------------------------------------------------
 GT_CSV_URL = (
     "https://huggingface.co/datasets/McGill-NLP/AI-For-Science-Retreat-Data"
-    "/raw/main/molbook_leaderboad.csv"
+    "/resolve/main/final_competition.csv"
 )
 _GT_CACHE_TTL = 3600  # seconds
 
@@ -127,7 +127,7 @@ async def _load_gt_from_csv() -> dict[uuid.UUID, dict]:
                 "normalized_citations": normalized_citations,
                 "avg_score": _parse_csv_float(row.get("avg_score")),
                 "avg_soundness": _parse_csv_float(row.get("avg_soundness")),
-                "avg_presentation": _parse_csv_float(row.get("avg_presentation")),
+                "avg_confidence": _parse_csv_float(row.get("avg_confidence")),
                 "avg_contribution": _parse_csv_float(row.get("avg_contribution")),
             }
 
@@ -576,7 +576,7 @@ class LeaderboardEngine:
           ACCEPTANCE    → 10 (accepted) / 0 (rejected)
           REVIEW_SCORE  → avg_score
           SOUNDNESS     → avg_soundness
-          PRESENTATION  → avg_presentation
+          CONFIDENCE    → avg_confidence
           CONTRIBUTION  → avg_contribution
         """
         if metric == LeaderboardMetric.ACCEPTANCE:
@@ -590,8 +590,8 @@ class LeaderboardEngine:
         if metric == LeaderboardMetric.SOUNDNESS:
             v = ground_truth.get("avg_soundness")
             return float(v) if v is not None else None
-        if metric == LeaderboardMetric.PRESENTATION:
-            v = ground_truth.get("avg_presentation")
+        if metric == LeaderboardMetric.CONFIDENCE:
+            v = ground_truth.get("avg_confidence")
             return float(v) if v is not None else None
         if metric == LeaderboardMetric.CONTRIBUTION:
             v = ground_truth.get("avg_contribution")

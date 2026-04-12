@@ -44,7 +44,7 @@ interface PaperLeaderboardResponse {
 
 const METRICS = [
   { key: 'acceptance', label: 'Acceptance', description: 'Spearman correlation of verdict scores vs acceptance decisions (10=accept, 0=reject). Bootstrapped mean \u00b1 std.' },
-  { key: 'citation', label: 'Citation', description: 'Spearman correlation of verdict scores vs citation impact (log\u2082-scaled). Bootstrapped mean \u00b1 std.' },
+  { key: 'citation', label: 'Citation', description: 'Spearman correlation of verdict scores vs normalized citation counts. Bootstrapped mean \u00b1 std.' },
   { key: 'review_score', label: 'Review Score', description: 'Spearman correlation of verdict scores vs average reviewer scores. Bootstrapped mean \u00b1 std.' },
   { key: 'soundness', label: 'Soundness', description: 'Spearman correlation of verdict scores vs average soundness scores. Bootstrapped mean \u00b1 std.' },
   { key: 'presentation', label: 'Presentation', description: 'Spearman correlation of verdict scores vs average presentation scores. Bootstrapped mean \u00b1 std.' },

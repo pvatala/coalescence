@@ -1,104 +1,188 @@
 """
-On-demand full data dump for ML engineers.
+Full data dump from the platform API.
 
-Authenticates, triggers a FullDataDumpWorkflow via the admin API,
-polls until complete, then downloads all output files.
+Authenticates, then fetches all entities (papers, comments, events, actors,
+votes, domains, verdicts, ground truth) via paginated API calls and writes
+each to a JSONL file.
 
 Usage:
-    python -m scripts.full_dump --api https://coale.science/api/v1 \
-        --email alice.chen@stanford.edu --password password123 --out ./my-dump
+    cd backend
+    python -m scripts.full_dump --email alice@stanford.edu --password secret
+    python -m scripts.full_dump --email alice@stanford.edu --password secret --out ./my-dump
 """
 import argparse
-import asyncio
+import json
+from datetime import datetime
 from pathlib import Path
 
 import httpx
 
 
-async def main():
-    parser = argparse.ArgumentParser(description="Trigger and download a full data dump")
-    parser.add_argument("--api", type=str, default="https://coale.science/api/v1", help="API base URL")
-    parser.add_argument("--email", type=str, required=True, help="Login email")
-    parser.add_argument("--password", type=str, required=True, help="Login password")
-    parser.add_argument("--out", type=str, default="./dump", help="Local output directory")
-    parser.add_argument("--poll-interval", type=int, default=5, help="Seconds between status checks")
+def _write_jsonl(path: Path, records: list):
+    with open(path, "w") as f:
+        for r in records:
+            f.write(json.dumps(r, default=str) + "\n")
+
+
+def _paginate(client: httpx.Client, url: str, headers: dict,
+              page_size: int = 10000, offset_key: str = "offset",
+              limit_key: str = "limit") -> list:
+    """Fetch all pages from a paginated endpoint."""
+    all_records = []
+    offset = 0
+    while True:
+        resp = client.get(url, headers=headers,
+                          params={limit_key: page_size, offset_key: offset})
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        all_records.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return all_records
+
+
+def _paginate_skip(client: httpx.Client, url: str, headers: dict,
+                   page_size: int = 500) -> list:
+    """Fetch all pages using skip/limit pagination."""
+    all_records = []
+    skip = 0
+    while True:
+        resp = client.get(url, headers=headers,
+                          params={"limit": page_size, "skip": skip})
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        all_records.extend(batch)
+        if len(batch) < page_size:
+            break
+        skip += page_size
+    return all_records
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Dump all platform data via API")
+    parser.add_argument("--api", default="https://coale.science/api/v1",
+                        help="API base URL")
+    parser.add_argument("--email", required=True, help="Login email")
+    parser.add_argument("--password", required=True, help="Login password")
+    parser.add_argument("--out", default=None,
+                        help="Output directory (default: dumps/YYYY-MM-DD)")
     args = parser.parse_args()
 
-    out = Path(args.out)
+    out = Path(args.out) if args.out else Path(f"dumps/{datetime.now():%Y-%m-%d}")
     out.mkdir(parents=True, exist_ok=True)
+    base = args.api
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        # 1. Authenticate
-        print(f"Logging in as {args.email}...")
-        resp = await client.post(f"{args.api}/auth/login", json={
-            "email": args.email,
-            "password": args.password,
-        })
-        if resp.status_code != 200:
-            print(f"Login failed: {resp.status_code} {resp.text}")
-            return
-        token = resp.json().get("access_token")
-        if not token:
-            print("No access_token in response")
-            return
-        headers = {"Authorization": f"Bearer {token}"}
-        print("Authenticated ✓\n")
+    client = httpx.Client(timeout=60.0)
 
-        # 2. Trigger the dump
-        print("Triggering full data dump...")
-        resp = await client.post(f"{args.api}/export/full-dump", headers=headers)
-        if resp.status_code != 202:
-            print(f"Failed to trigger dump: {resp.status_code} {resp.text}")
-            return
+    # 1. Authenticate
+    print(f"Logging in as {args.email}...")
+    resp = client.post(f"{base}/auth/login",
+                       json={"email": args.email, "password": args.password})
+    if resp.status_code != 200:
+        print(f"Login failed: {resp.status_code} {resp.text}")
+        return
+    token = resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    print("Authenticated.\n")
 
-        workflow_id = resp.json()["workflow_id"]
-        print(f"Workflow started: {workflow_id}")
+    counts = {}
 
-        # 3. Poll until complete
-        print("Waiting for dump to complete", end="", flush=True)
-        while True:
-            await asyncio.sleep(args.poll_interval)
-            print(".", end="", flush=True)
+    # 2. Papers (skip/limit pagination, sort=new)
+    print("Fetching papers...", end=" ", flush=True)
+    papers = _paginate_skip(client, f"{base}/papers/?sort=new", headers, 500)
+    _write_jsonl(out / "papers.jsonl", papers)
+    counts["papers"] = len(papers)
+    print(f"{len(papers)}")
 
-            resp = await client.get(
-                f"{args.api}/export/full-dump/{workflow_id}",
-                headers=headers,
-            )
-            status = resp.json()
+    # 3. Comments (bulk export endpoint)
+    print("Fetching comments...", end=" ", flush=True)
+    comments = _paginate(client, f"{base}/export/comments", headers)
+    _write_jsonl(out / "comments.jsonl", comments)
+    counts["comments"] = len(comments)
+    print(f"{len(comments)}")
 
-            if status["status"] == "completed":
-                print(" done!\n")
-                files = status["files"]
-                counts = status.get("counts", {})
-                break
-            elif status["status"] == "failed":
-                print(f"\nDump failed: {status.get('error', 'unknown')}")
-                return
+    # 4. Events
+    print("Fetching events...", end=" ", flush=True)
+    events = _paginate(client, f"{base}/export/events", headers)
+    _write_jsonl(out / "events.jsonl", events)
+    counts["events"] = len(events)
+    print(f"{len(events)}")
 
-        # 4. Download all files
-        base_url = args.api.replace("/api/v1", "")
-        print(f"Downloading {len(files)} files to {out}/")
-        for file_info in files:
-            name = file_info["name"]
-            url = file_info["url"]
-            print(f"  {name}...", end=" ", flush=True)
+    # 5. Actors (bulk export endpoint)
+    print("Fetching actors...", end=" ", flush=True)
+    actors = _paginate(client, f"{base}/export/actors", headers)
+    _write_jsonl(out / "actors.jsonl", actors)
+    counts["actors"] = len(actors)
+    print(f"{len(actors)}")
 
-            resp = await client.get(f"{base_url}{url}", headers=headers)
-            if resp.status_code == 200:
-                (out / name).write_bytes(resp.content)
-                size_kb = len(resp.content) / 1024
-                print(f"✓ ({size_kb:.1f} KB)")
-            else:
-                print(f"✗ ({resp.status_code})")
+    # 6. Domains
+    print("Fetching domains...", end=" ", flush=True)
+    resp = client.get(f"{base}/domains/", headers=headers)
+    resp.raise_for_status()
+    domains = resp.json()
+    _write_jsonl(out / "domains.jsonl", domains)
+    counts["domains"] = len(domains)
+    print(f"{len(domains)}")
+
+    # 7. Verdicts
+    print("Fetching verdicts...", end=" ", flush=True)
+    verdicts = _paginate_skip(client, f"{base}/verdicts/", headers, 10000)
+    _write_jsonl(out / "verdicts.jsonl", verdicts)
+    counts["verdicts"] = len(verdicts)
+    print(f"{len(verdicts)}")
+
+    # 8. Ground truth papers
+    print("Fetching ground truth...", end=" ", flush=True)
+    resp = client.get(f"{base}/leaderboard/ground-truth/", headers=headers)
+    resp.raise_for_status()
+    gt = resp.json()
+    _write_jsonl(out / "ground_truth.jsonl", gt)
+    counts["ground_truth"] = len(gt)
+    print(f"{len(gt)}")
+
+    # 9. Votes (from events)
+    votes = [
+        {
+            "id": e["id"],
+            "voter_id": e["actor_id"],
+            "voter_type": (e.get("payload") or {}).get("actor_type"),
+            "target_id": e.get("target_id"),
+            "target_type": e.get("target_type"),
+            "vote_value": (e.get("payload") or {}).get("vote_value", 0),
+            "vote_weight": (e.get("payload") or {}).get("vote_weight", 1.0),
+            "created_at": e["created_at"],
+        }
+        for e in events
+        if e["event_type"] == "VOTE_CAST"
+    ]
+    _write_jsonl(out / "votes.jsonl", votes)
+    counts["votes"] = len(votes)
+
+    client.close()
+
+    # Manifest
+    manifest = {
+        "source": args.api,
+        "dumped_at": datetime.utcnow().isoformat(),
+        "counts": counts,
+    }
+    with open(out / "manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
 
     # Summary
-    print(f"\n=== Dump Complete ===")
+    print(f"\n{'='*50}")
+    print(f"Dump complete -> {out}/")
     for k, v in counts.items():
         print(f"  {k}: {v}")
     total_size = sum(f.stat().st_size for f in out.iterdir() if f.is_file())
     print(f"  Total size: {total_size / 1024:.1f} KB")
-    print(f"  Location: {out}/")
+    print(f"{'='*50}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

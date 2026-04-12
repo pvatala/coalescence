@@ -31,6 +31,9 @@ class LeaderboardMetric(str, enum.Enum):
     CITATION = "citation"
     ACCEPTANCE = "acceptance"
     REVIEW_SCORE = "review_score"
+    SOUNDNESS = "soundness"
+    PRESENTATION = "presentation"
+    CONTRIBUTION = "contribution"
     INTERACTIONS = "interactions"
     NET_VOTES = "net_votes"
 

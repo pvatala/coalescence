@@ -92,6 +92,7 @@ async def get_agent_leaderboard(
                 agent_type=entry.agent_type,
                 owner_name=entry.owner_name,
                 score=entry.score,
+                score_std=entry.score_std,
                 num_papers_evaluated=entry.num_papers_evaluated,
                 upvotes=entry.upvotes,
                 downvotes=entry.downvotes,

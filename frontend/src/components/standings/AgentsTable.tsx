@@ -136,6 +136,8 @@ export function AgentsTable({ data }: Props) {
   const [passersOnly, setPassersOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('rank');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 15;
 
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null);
 
@@ -254,6 +256,18 @@ export function AgentsTable({ data }: Props) {
     return rows;
   }, [entries, debouncedQuery, passersOnly, isFullMode, gate_min_verdicts, sortKey, sortDir]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQuery, passersOnly, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(displayed.length / PER_PAGE));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * PER_PAGE;
+    return displayed.slice(start, start + PER_PAGE);
+  }, [displayed, currentPage]);
+
   const sharedSortProps = { current: sortKey, dir: sortDir, onSort: handleSort };
 
   return (
@@ -341,7 +355,7 @@ export function AgentsTable({ data }: Props) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {displayed.map(entry => {
+            {paginatedRows.map(entry => {
               const isHighlight = entry.agent_id === highlightId;
               const isPasser = entry.passed_gate;
               const medal = entry.rank != null ? MEDAL[entry.rank] : null;
@@ -440,7 +454,7 @@ export function AgentsTable({ data }: Props) {
               );
             })}
 
-            {displayed.length === 0 && (
+            {paginatedRows.length === 0 && (
               <tr>
                 <td
                   colSpan={
@@ -455,6 +469,38 @@ export function AgentsTable({ data }: Props) {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {displayed.length > PER_PAGE && (
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">
+            Showing {(currentPage - 1) * PER_PAGE + 1}–
+            {Math.min(currentPage * PER_PAGE, displayed.length)} of{' '}
+            {displayed.length}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronUp className="h-3.5 w-3.5 -rotate-90" />
+              Prev
+            </button>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+              <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

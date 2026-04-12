@@ -317,8 +317,11 @@ function MetricsPageInner() {
   const PAPERS_PER_PAGE = 10;
 
   // Reviewer table controls
+  const [reviewerQuery, setReviewerQuery] = useState('');
   const [reviewerSortKey, setReviewerSortKey] = useState<ReviewerSortKey>('trust');
   const [reviewerSortDir, setReviewerSortDir] = useState<'asc' | 'desc'>('desc');
+  const [reviewerPage, setReviewerPage] = useState(1);
+  const REVIEWERS_PER_PAGE = 15;
 
   useEffect(() => {
     // Serve from cache if fresh
@@ -403,10 +406,15 @@ function MetricsPageInner() {
     }
   };
 
-  // Reviewer sorting
-  const sortedReviewers = useMemo(() => {
+  // Reviewer filtering + sorting
+  const filteredReviewers = useMemo(() => {
     if (!reviewers) return null;
-    return [...reviewers].sort((a, b) => {
+    const q = reviewerQuery.trim().toLowerCase();
+    let list = reviewers;
+    if (q) {
+      list = list.filter(r => r.name.toLowerCase().includes(q) || r.actor_type.toLowerCase().includes(q));
+    }
+    return [...list].sort((a, b) => {
       let cmp = 0;
       switch (reviewerSortKey) {
         case 'rank': cmp = a.rank - b.rank; break;
@@ -418,7 +426,7 @@ function MetricsPageInner() {
       }
       return reviewerSortDir === 'asc' ? cmp : -cmp;
     });
-  }, [reviewers, reviewerSortKey, reviewerSortDir]);
+  }, [reviewers, reviewerQuery, reviewerSortKey, reviewerSortDir]);
 
   const toggleReviewerSort = (key: ReviewerSortKey) => {
     if (reviewerSortKey === key) {
@@ -428,6 +436,19 @@ function MetricsPageInner() {
       setReviewerSortDir(key === 'name' || key === 'type' ? 'asc' : 'desc');
     }
   };
+
+  // Reset reviewer page when filters change
+  useEffect(() => {
+    setReviewerPage(1);
+  }, [reviewerQuery, reviewerSortKey, reviewerSortDir]);
+
+  const reviewerTotalPages = filteredReviewers ? Math.max(1, Math.ceil(filteredReviewers.length / REVIEWERS_PER_PAGE)) : 1;
+  const reviewerCurrentPage = Math.min(reviewerPage, reviewerTotalPages);
+  const paginatedReviewers = useMemo(() => {
+    if (!filteredReviewers) return null;
+    const start = (reviewerCurrentPage - 1) * REVIEWERS_PER_PAGE;
+    return filteredReviewers.slice(start, start + REVIEWERS_PER_PAGE);
+  }, [filteredReviewers, reviewerCurrentPage]);
 
   if (error) {
     return (
@@ -708,9 +729,26 @@ function MetricsPageInner() {
             generalist, one focused on a single domain is a specialist.
           </p>
         </AboutDetails>
-        {sortedReviewers === null ? (
+        {/* Search */}
+        <div className="relative max-w-xs mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search reviewers..."
+            value={reviewerQuery}
+            onChange={e => setReviewerQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        {paginatedReviewers === null ? (
           <SkeletonTable />
+        ) : filteredReviewers && filteredReviewers.length === 0 ? (
+          <div className="rounded-lg border border-border p-8 text-center text-muted-foreground text-sm">
+            No reviewers match your search.
+          </div>
         ) : (
+          <>
           <div className="rounded-lg border border-border overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
@@ -724,7 +762,7 @@ function MetricsPageInner() {
                 </tr>
               </thead>
               <tbody>
-                {sortedReviewers.map(r => (
+                {paginatedReviewers.map(r => (
                   <tr key={r.id} className="border-t border-border hover:bg-muted/30">
                     <td className="p-3 text-muted-foreground font-medium">#{r.rank}</td>
                     <td className="p-3">
@@ -756,6 +794,37 @@ function MetricsPageInner() {
               </tbody>
             </table>
           </div>
+          {filteredReviewers && filteredReviewers.length > REVIEWERS_PER_PAGE && (
+            <div className="flex items-center justify-between mt-4">
+              <div className="text-xs text-muted-foreground">
+                Showing {(reviewerCurrentPage - 1) * REVIEWERS_PER_PAGE + 1}–
+                {Math.min(reviewerCurrentPage * REVIEWERS_PER_PAGE, filteredReviewers.length)} of{' '}
+                {filteredReviewers.length}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setReviewerPage(p => Math.max(1, p - 1))}
+                  disabled={reviewerCurrentPage === 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Prev
+                </button>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {reviewerCurrentPage} / {reviewerTotalPages}
+                </span>
+                <button
+                  onClick={() => setReviewerPage(p => Math.min(reviewerTotalPages, p + 1))}
+                  disabled={reviewerCurrentPage === reviewerTotalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </section>
       )}

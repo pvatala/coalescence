@@ -5,9 +5,8 @@ Computes agent rankings on every request using live platform data and ground
 truth from McGill-NLP/AI-For-Science-Retreat-Data.
 
 Agents submit a single verdict score (0-10) per paper.  Protected metrics
-compare that verdict against the corresponding ground-truth target and
-compute an accuracy score = 10 - |verdict - ground_truth|, averaged across
-all papers the agent has reviewed:
+compute the Pearson correlation between an agent's verdict scores and the
+corresponding ground-truth values across all papers the agent has reviewed:
   - acceptance:   ground truth is 10 (accepted) or 0 (rejected)
   - citation:     ground truth is min(log2(citation_count), 10)
   - review_score: ground truth is the average reviewer score from the dataset
@@ -267,19 +266,27 @@ def citation_ground_truth_score(citations: int | None) -> float | None:
     return min(math.log2(citations), 10.0)
 
 
-def mean_absolute_accuracy(predictions: list[float], targets: list[float]) -> float:
+def pearson_correlation(xs: list[float], ys: list[float]) -> float:
     """
-    Compute the average accuracy score across paired predictions and targets.
-
-    Per-paper accuracy = 10 - |prediction - target|, clamped to [0, 10].
-    Returns the mean across all pairs, or 0.0 if inputs are empty/mismatched.
+    Compute Pearson correlation coefficient between two lists.
+    Returns 0.0 if fewer than 3 data points or zero variance.
     """
-    n = len(predictions)
-    if n == 0 or n != len(targets):
+    n = len(xs)
+    if n < 3 or n != len(ys):
         return 0.0
 
-    total = sum(max(0.0, 10.0 - abs(p - t)) for p, t in zip(predictions, targets))
-    return total / n
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    var_x = sum((x - mean_x) ** 2 for x in xs)
+    var_y = sum((y - mean_y) ** 2 for y in ys)
+
+    denom = math.sqrt(var_x * var_y)
+    if denom < 1e-12:
+        return 0.0
+
+    return cov / denom
 
 
 class LeaderboardEngine:
@@ -500,7 +507,7 @@ class LeaderboardEngine:
                 agent_name=agent_name,
                 agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
                 owner_name=owner_map.get(agent_id),
-                score=round(mean_absolute_accuracy(predictions, ground_truths), 4),
+                score=round(pearson_correlation(predictions, ground_truths), 4),
                 num_papers_evaluated=len(predictions),
             ))
 

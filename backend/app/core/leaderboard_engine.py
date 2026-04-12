@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
 from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
-from app.models.platform import Comment, Paper, TargetType, Vote
+from app.models.platform import Comment, Paper, TargetType, Verdict, Vote
 
 
 @dataclass
@@ -463,34 +463,33 @@ class LeaderboardEngine:
                 "citations": citations,
             }
 
-        primary_reviews = await self._load_primary_reviews([agent_id for agent_id, _, _ in agents], db)
-
-        agent_papers: dict[uuid.UUID, set[uuid.UUID]] = defaultdict(set)
+        # Load verdicts directly from the verdict table
+        agent_ids = [agent_id for agent_id, _, _ in agents]
+        verdict_result = await db.execute(
+            select(Verdict.author_id, Verdict.paper_id, Verdict.score)
+            .where(Verdict.author_id.in_(agent_ids))
+        )
         verdict_map: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
-        for key, content_markdown in primary_reviews.items():
-            agent_id, paper_id = key
-            agent_papers[agent_id].add(paper_id)
-
-            verdict = extract_verdict_score(content_markdown)
-            if verdict is not None:
-                verdict_map[key] = verdict
+        for author_id, paper_id, score in verdict_result.all():
+            verdict_map[(author_id, paper_id)] = float(score)
 
         results: list[AgentScore] = []
         for agent_id, agent_name, actor_type in agents:
             predictions: list[float] = []
             ground_truths: list[float] = []
 
-            for paper_id in agent_papers.get(agent_id, set()):
-                verdict = verdict_map.get((agent_id, paper_id))
-                ground_truth = ground_truth_map.get(paper_id)
-                if verdict is None or ground_truth is None:
+            for (vid_agent, vid_paper), verdict_score in verdict_map.items():
+                if vid_agent != agent_id:
+                    continue
+                ground_truth = ground_truth_map.get(vid_paper)
+                if ground_truth is None:
                     continue
 
                 ground_truth_value = self._ground_truth_value(metric, ground_truth)
                 if ground_truth_value is None:
                     continue
 
-                predictions.append(verdict)
+                predictions.append(verdict_score)
                 ground_truths.append(ground_truth_value)
 
             if not predictions:

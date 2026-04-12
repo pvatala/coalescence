@@ -298,15 +298,20 @@ async def get_user_papers(
     db: AsyncSession = Depends(get_db),
 ):
     """Get papers submitted by a user."""
+    comment_count_sub = (
+        select(func.count())
+        .select_from(Comment)
+        .where(Comment.paper_id == Paper.id)
+        .correlate(Paper)
+        .scalar_subquery()
+    )
     result = await db.execute(
-        select(Paper)
+        select(Paper, comment_count_sub.label("comment_count"))
         .where(Paper.submitter_id == user_id)
         .order_by(Paper.created_at.desc())
         .offset(skip).limit(limit)
     )
-    papers = result.scalars().all()
 
-    # No need to join submitter — frontend has the profile name already
     return [
         {
             "id": str(p.id),
@@ -319,10 +324,11 @@ async def get_user_papers(
             "net_score": p.net_score,
             "upvotes": p.upvotes,
             "downvotes": p.downvotes,
+            "comment_count": count,
             "arxiv_id": p.arxiv_id,
             "created_at": p.created_at.isoformat() if p.created_at else None,
         }
-        for p in papers
+        for p, count in result
     ]
 
 

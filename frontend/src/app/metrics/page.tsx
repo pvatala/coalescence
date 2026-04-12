@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useBetaFlag } from '@/lib/use-beta-flag';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Medal, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { BetaVisible } from '@/components/shared/beta-gate';
 import { cn } from '@/lib/utils';
+import { StandingsContent } from '@/components/standings/StandingsContent';
 
 // ── Types ──
 
@@ -272,15 +274,45 @@ function AboutDetails({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Tab = 'papers' | 'reviewers' | 'philosophies';
+type Tab = 'standings' | 'papers' | 'reviewers' | 'algorithms';
+const VALID_TABS: readonly Tab[] = ['standings', 'papers', 'reviewers', 'algorithms'] as const;
+
+function isTab(v: string | null): v is Tab {
+  return v !== null && (VALID_TABS as readonly string[]).includes(v);
+}
 
 export default function MetricsPage() {
+  return (
+    <Suspense fallback={<SkeletonTable />}>
+      <MetricsPageInner />
+    </Suspense>
+  );
+}
+
+function MetricsPageInner() {
   const [summary, setSummary] = useState<Summary | null>(_evalCache.summary);
   const [papers, setPapers] = useState<PaperEntry[] | null>(_evalCache.papers);
   const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(_evalCache.reviewers);
   const [rankings, setRankings] = useState<RankingComparison | null>(_evalCache.rankings);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('papers');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { allowed: standingsAllowed } = useBetaFlag('standings');
+
+  const rawTab = searchParams.get('tab');
+  const tab: Tab = (() => {
+    if (isTab(rawTab)) {
+      if (rawTab === 'standings' && !standingsAllowed) return 'papers';
+      return rawTab;
+    }
+    return standingsAllowed ? 'standings' : 'papers';
+  })();
+
+  const setTab = (next: Tab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', next);
+    router.replace(`/metrics?${params.toString()}`, { scroll: false });
+  };
 
   // Paper table controls
   const [query, setQuery] = useState('');
@@ -450,21 +482,12 @@ export default function MetricsPage() {
       {/* Header */}
       <div>
         <h1 className="font-heading text-3xl font-bold">Metrics</h1>
-        <p className="text-sm text-muted-foreground mt-1">Platform signals: consensus, trust, and algorithm sensitivity.</p>
+        <p className="text-sm text-muted-foreground mt-1">Agent standings, paper engagement, reviewer trust, and algorithm sensitivity.</p>
         <p className="text-muted-foreground mt-3 max-w-2xl">
           Live diagnostics of the review process. How diverse reviewers reach consensus, which papers
           draw the most engagement, and how different scoring philosophies see the same data.
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          <BetaVisible flag="standings">
-            <>
-              Looking for the canonical scoreboard?{' '}
-              <Link href="/standings" className="underline hover:text-foreground">
-                See Standings →
-              </Link>
-              {' · '}
-            </>
-          </BetaVisible>
           Ground-truth benchmarks (ICLR citations, accept/reject)?{' '}
           <Link href="/leaderboard" className="underline hover:text-foreground">
             See Leaderboard →
@@ -476,11 +499,14 @@ export default function MetricsPage() {
       <div className="flex gap-1 border-b">
         {(
           [
-            { key: 'papers', label: 'Active Papers', icon: <FileText className="h-4 w-4" /> },
-            { key: 'reviewers', label: 'Trusted Reviewers', icon: <Users className="h-4 w-4" /> },
-            { key: 'philosophies', label: 'Scoring Philosophies', icon: <BarChart3 className="h-4 w-4" /> },
+            { key: 'standings', label: 'Standings', icon: <Medal className="h-4 w-4" />, betaOnly: true },
+            { key: 'papers', label: 'Papers', icon: <FileText className="h-4 w-4" />, betaOnly: false },
+            { key: 'reviewers', label: 'Reviewers', icon: <Users className="h-4 w-4" />, betaOnly: false },
+            { key: 'algorithms', label: 'Algorithms', icon: <BarChart3 className="h-4 w-4" />, betaOnly: false },
           ] as const
-        ).map(t => (
+        )
+          .filter(t => !t.betaOnly || standingsAllowed)
+          .map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -508,10 +534,17 @@ export default function MetricsPage() {
         </div>
       )}
 
-      {/* Most Active Papers */}
+      {/* Standings */}
+      {tab === 'standings' && standingsAllowed && (
+        <section id="standings" className="scroll-mt-20">
+          <StandingsContent />
+        </section>
+      )}
+
+      {/* Papers */}
       {tab === 'papers' && (
-      <section id="active-papers" className="scroll-mt-20">
-        <h2 className="text-xl font-semibold mb-2">Most Active Papers</h2>
+      <section id="papers" className="scroll-mt-20">
+        <h2 className="text-xl font-semibold mb-2">Papers</h2>
         {summary && (
           <p className="text-sm text-muted-foreground mb-4">
             {summary.papers.toLocaleString()} papers drawing {summary.comments.toLocaleString()} reviews from{' '}
@@ -686,8 +719,8 @@ export default function MetricsPage() {
 
       {/* Most Trusted Reviewers */}
       {tab === 'reviewers' && (
-      <section id="trusted-reviewers" className="scroll-mt-20">
-        <h2 className="text-xl font-semibold mb-2">Most Trusted Reviewers</h2>
+      <section id="reviewers" className="scroll-mt-20">
+        <h2 className="text-xl font-semibold mb-2">Reviewers</h2>
         <p className="text-sm text-muted-foreground mb-4">
           Ranked by community trust — net votes received on their comments.
         </p>
@@ -762,9 +795,9 @@ export default function MetricsPage() {
       )}
 
       {/* Scoring Philosophies */}
-      {tab === 'philosophies' && (
-      <section id="scoring-philosophies" className="scroll-mt-20">
-        <h2 className="text-xl font-semibold mb-2">Scoring Philosophies</h2>
+      {tab === 'algorithms' && (
+      <section id="algorithms" className="scroll-mt-20">
+        <h2 className="text-xl font-semibold mb-2">Algorithms</h2>
         <p className="text-sm text-muted-foreground mb-4">
           The same papers ranked under five different theories of democratic consensus.
         </p>

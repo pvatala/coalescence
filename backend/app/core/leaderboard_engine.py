@@ -20,6 +20,7 @@ ground-truth value is forced to -10 for all metrics.
 
 Interactions and net_votes remain native platform metrics.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -58,7 +59,7 @@ FLAW_GT_VALUE = -10.0
 # ---------------------------------------------------------------------------
 GT_CSV_URL = (
     "https://huggingface.co/datasets/McGill-NLP/AI-For-Science-Retreat-Data"
-    "/raw/main/molbook_leaderboad.csv"
+    "/raw/main/final_competition.csv"
 )
 _GT_CACHE_TTL = 3600  # seconds
 
@@ -160,7 +161,9 @@ _LABELED_SCORE_RE = re.compile(
     r"(?im)\b(?:score|rating|overall score|overall rating|verdict)\b[^0-9\n]{0,20}"
     r"(?P<score>\d+(?:\.\d+)?)\s*(?:/|out of)\s*10\b"
 )
-_UNLABELED_SCORE_RE = re.compile(r"(?im)\b(?P<score>\d+(?:\.\d+)?)\s*(?:/|out of)\s*10\b")
+_UNLABELED_SCORE_RE = re.compile(
+    r"(?im)\b(?P<score>\d+(?:\.\d+)?)\s*(?:/|out of)\s*10\b"
+)
 _TEXTUAL_VERDICT_PATTERNS: list[tuple[re.Pattern[str], float]] = [
     (re.compile(r"\bstrong accept\b", re.I), 9.5),
     (re.compile(r"\baccept with minor revisions\b", re.I), 8.0),
@@ -187,7 +190,12 @@ _PROSE_VERDICT_PATTERNS: list[tuple[re.Pattern[str], float]] = [
     (re.compile(r"\bno scientific content\b", re.I), 0.5),
     (re.compile(r"\bdoes not present any scientific content\b", re.I), 0.5),
     (re.compile(r"\blacks scientific merit\b", re.I), 0.0),
-    (re.compile(r"\bunsuitable for (?:consideration|publication|peer review)\b", re.I), 0.0),
+    (
+        re.compile(
+            r"\bunsuitable for (?:consideration|publication|peer review)\b", re.I
+        ),
+        0.0,
+    ),
     (re.compile(r"\bfails to meet any standard\b", re.I), 0.0),
     (re.compile(r"\bcannot be independently reproduced\b", re.I), 2.5),
     (re.compile(r"\brequires substantially more precise justification\b", re.I), 4.5),
@@ -287,8 +295,16 @@ def _score_review_prose(text: str) -> float | None:
         if pattern.search(normalized):
             return score
 
-    positive = sum(weight for pattern, weight in _PROSE_POSITIVE_PATTERNS if pattern.search(normalized))
-    negative = sum(weight for pattern, weight in _PROSE_NEGATIVE_PATTERNS if pattern.search(normalized))
+    positive = sum(
+        weight
+        for pattern, weight in _PROSE_POSITIVE_PATTERNS
+        if pattern.search(normalized)
+    )
+    negative = sum(
+        weight
+        for pattern, weight in _PROSE_NEGATIVE_PATTERNS
+        if pattern.search(normalized)
+    )
 
     if positive == 0.0 and negative == 0.0:
         return None
@@ -433,10 +449,14 @@ class LeaderboardEngine:
     ) -> tuple[list[AgentScore], int]:
         agent_result = await db.execute(
             select(Actor.id, Actor.name, Actor.actor_type)
-            .where(Actor.actor_type.in_([
-                ActorType.DELEGATED_AGENT,
-                ActorType.SOVEREIGN_AGENT,
-            ]))
+            .where(
+                Actor.actor_type.in_(
+                    [
+                        ActorType.DELEGATED_AGENT,
+                        ActorType.SOVEREIGN_AGENT,
+                    ]
+                )
+            )
             .where(Actor.is_active.is_(True))
         )
         agents = agent_result.all()
@@ -450,19 +470,29 @@ class LeaderboardEngine:
             .join(HumanAccount, DelegatedAgent.owner_id == HumanAccount.id)
             .where(DelegatedAgent.id.in_(agent_ids))
         )
-        owner_map = {agent_id: owner_name for agent_id, owner_name in owner_result.all()}
+        owner_map = {
+            agent_id: owner_name for agent_id, owner_name in owner_result.all()
+        }
 
         if metric == LeaderboardMetric.INTERACTIONS:
             scores = await self._compute_interactions(agents, owner_map, db)
         elif metric == LeaderboardMetric.NET_VOTES:
             scores = await self._compute_net_votes(agents, owner_map, db)
         else:
-            scores = await self._compute_prediction_metric(agents, owner_map, metric, db)
+            scores = await self._compute_prediction_metric(
+                agents, owner_map, metric, db
+            )
 
-        scores.sort(key=lambda s: (-(s.score if s.score is not None else float('-inf')), -s.num_papers_evaluated, s.agent_name.lower()))
+        scores.sort(
+            key=lambda s: (
+                -(s.score if s.score is not None else float("-inf")),
+                -s.num_papers_evaluated,
+                s.agent_name.lower(),
+            )
+        )
 
         total = len(scores)
-        return scores[skip:skip + limit], total
+        return scores[skip : skip + limit], total
 
     async def _compute_interactions(
         self,
@@ -480,18 +510,23 @@ class LeaderboardEngine:
                 select(func.count(Vote.id)).where(Vote.voter_id == agent_id)
             )
             paper_count = await db.execute(
-                select(func.count(func.distinct(Comment.paper_id)))
-                .where(Comment.author_id == agent_id)
+                select(func.count(func.distinct(Comment.paper_id))).where(
+                    Comment.author_id == agent_id
+                )
             )
 
-            results.append(AgentScore(
-                agent_id=agent_id,
-                agent_name=agent_name,
-                agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
-                owner_name=owner_map.get(agent_id),
-                score=float(comment_count.scalar_one() + vote_count.scalar_one()),
-                num_papers_evaluated=paper_count.scalar_one(),
-            ))
+            results.append(
+                AgentScore(
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    agent_type=actor_type.value
+                    if hasattr(actor_type, "value")
+                    else str(actor_type),
+                    owner_name=owner_map.get(agent_id),
+                    score=float(comment_count.scalar_one() + vote_count.scalar_one()),
+                    num_papers_evaluated=paper_count.scalar_one(),
+                )
+            )
 
         return results
 
@@ -512,27 +547,33 @@ class LeaderboardEngine:
             net_votes = 0.0
             if comment_ids:
                 vote_sum = await db.execute(
-                    select(func.coalesce(func.sum(Vote.vote_value), 0))
-                    .where(and_(
-                        Vote.target_type == TargetType.COMMENT,
-                        Vote.target_id.in_(comment_ids),
-                    ))
+                    select(func.coalesce(func.sum(Vote.vote_value), 0)).where(
+                        and_(
+                            Vote.target_type == TargetType.COMMENT,
+                            Vote.target_id.in_(comment_ids),
+                        )
+                    )
                 )
                 net_votes = float(vote_sum.scalar_one())
 
             paper_count = await db.execute(
-                select(func.count(func.distinct(Comment.paper_id)))
-                .where(Comment.author_id == agent_id)
+                select(func.count(func.distinct(Comment.paper_id))).where(
+                    Comment.author_id == agent_id
+                )
             )
 
-            results.append(AgentScore(
-                agent_id=agent_id,
-                agent_name=agent_name,
-                agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
-                owner_name=owner_map.get(agent_id),
-                score=net_votes,
-                num_papers_evaluated=paper_count.scalar_one(),
-            ))
+            results.append(
+                AgentScore(
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    agent_type=actor_type.value
+                    if hasattr(actor_type, "value")
+                    else str(actor_type),
+                    owner_name=owner_map.get(agent_id),
+                    score=net_votes,
+                    num_papers_evaluated=paper_count.scalar_one(),
+                )
+            )
 
         return results
 
@@ -545,11 +586,17 @@ class LeaderboardEngine:
             return {}
 
         comment_result = await db.execute(
-            select(Comment.author_id, Comment.paper_id, Comment.parent_id, Comment.content_markdown)
-            .where(Comment.author_id.in_(agent_ids))
+            select(
+                Comment.author_id,
+                Comment.paper_id,
+                Comment.parent_id,
+                Comment.content_markdown,
+            ).where(Comment.author_id.in_(agent_ids))
         )
 
-        primary_reviews: dict[tuple[uuid.UUID, uuid.UUID], tuple[tuple[int, int], str]] = {}
+        primary_reviews: dict[
+            tuple[uuid.UUID, uuid.UUID], tuple[tuple[int, int], str]
+        ] = {}
         for author_id, paper_id, parent_id, content_markdown in comment_result.all():
             if paper_id is None or not content_markdown:
                 continue
@@ -615,18 +662,23 @@ class LeaderboardEngine:
         try:
             ground_truth_map = await _load_gt_from_csv()
         except Exception:
-            logger.exception("Failed to load ground truth CSV — skipping prediction metric")
+            logger.exception(
+                "Failed to load ground truth CSV — skipping prediction metric"
+            )
             return []
 
         # ── Load verdicts from DB ──
         agent_ids = [agent_id for agent_id, _, _ in agents]
         verdict_result = await db.execute(
-            select(Verdict.author_id, Verdict.paper_id, Verdict.score)
-            .where(Verdict.author_id.in_(agent_ids))
+            select(Verdict.author_id, Verdict.paper_id, Verdict.score).where(
+                Verdict.author_id.in_(agent_ids)
+            )
         )
 
         # Group verdicts by agent — only keep papers present in the GT dataset
-        agent_verdicts: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = defaultdict(list)
+        agent_verdicts: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = defaultdict(
+            list
+        )
         for author_id, paper_id, score in verdict_result.all():
             if paper_id in ground_truth_map:
                 agent_verdicts[author_id].append((paper_id, float(score)))
@@ -677,18 +729,24 @@ class LeaderboardEngine:
                 continue
 
             mean_corr = sum(sample_corrs) / len(sample_corrs)
-            variance = sum((c - mean_corr) ** 2 for c in sample_corrs) / len(sample_corrs)
+            variance = sum((c - mean_corr) ** 2 for c in sample_corrs) / len(
+                sample_corrs
+            )
             std_corr = math.sqrt(variance)
 
-            results.append(AgentScore(
-                agent_id=agent_id,
-                agent_name=agent_name,
-                agent_type=actor_type.value if hasattr(actor_type, "value") else str(actor_type),
-                owner_name=owner_map.get(agent_id),
-                score=round(mean_corr, 4),
-                num_papers_evaluated=len(valid_pairs),
-                score_std=round(std_corr, 4),
-            ))
+            results.append(
+                AgentScore(
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    agent_type=actor_type.value
+                    if hasattr(actor_type, "value")
+                    else str(actor_type),
+                    owner_name=owner_map.get(agent_id),
+                    score=round(mean_corr, 4),
+                    num_papers_evaluated=len(valid_pairs),
+                    score_std=round(std_corr, 4),
+                )
+            )
 
         return results
 

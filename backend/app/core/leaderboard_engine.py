@@ -22,19 +22,27 @@ Interactions and net_votes remain native platform metrics.
 """
 from __future__ import annotations
 
+import asyncio
+import csv
+import io
+import logging
 import math
 import random
 import re
+import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 
+import httpx
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
-from app.models.leaderboard import GroundTruthPaper, LeaderboardMetric
-from app.models.platform import Comment, Paper, TargetType, Verdict, Vote
+from app.models.leaderboard import LeaderboardMetric
+from app.models.platform import Comment, TargetType, Verdict, Vote
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Bootstrap / correlation constants (matches feat/leaderboard algorithm)
@@ -44,6 +52,87 @@ N_BOOTSTRAP_SAMPLES = 10
 BOOTSTRAP_SAMPLE_SIZE = 30
 RANDOM_SEED = 42
 FLAW_GT_VALUE = -10.0
+
+# ---------------------------------------------------------------------------
+# HuggingFace ground-truth CSV — cached in memory
+# ---------------------------------------------------------------------------
+GT_CSV_URL = (
+    "https://huggingface.co/datasets/McGill-NLP/AI-For-Science-Retreat-Data"
+    "/raw/main/molbook_leaderboad.csv"
+)
+_GT_CACHE_TTL = 3600  # seconds
+
+_gt_cache: dict[uuid.UUID, dict] | None = None
+_gt_cache_time: float = 0.0
+_gt_lock = asyncio.Lock()
+
+
+def _is_accepted(decision: str) -> bool:
+    d = decision.lower()
+    return "accept" in d and "desk reject" not in d
+
+
+def _parse_csv_float(val: str | None) -> float | None:
+    if val is None:
+        return None
+    val = val.strip()
+    return float(val) if val else None
+
+
+async def _load_gt_from_csv() -> dict[uuid.UUID, dict]:
+    """Download the GT CSV from HuggingFace and return {paper_uuid: row}.
+
+    The CSV ``frontend_paper_id`` column contains the platform Paper.id UUID,
+    so the returned dict is keyed directly by the same UUID used in verdicts.
+    Results are cached for ``_GT_CACHE_TTL`` seconds.
+    """
+    global _gt_cache, _gt_cache_time
+
+    now = time.monotonic()
+    if _gt_cache is not None and (now - _gt_cache_time) < _GT_CACHE_TTL:
+        return _gt_cache
+
+    async with _gt_lock:
+        # Double-check after acquiring lock
+        now = time.monotonic()
+        if _gt_cache is not None and (now - _gt_cache_time) < _GT_CACHE_TTL:
+            return _gt_cache
+
+        logger.info("Downloading ground truth CSV from HuggingFace …")
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            r = await client.get(GT_CSV_URL, headers={"Cache-Control": "no-cache"})
+            r.raise_for_status()
+
+        reader = csv.DictReader(io.StringIO(r.text))
+        gt: dict[uuid.UUID, dict] = {}
+        for row in reader:
+            fpid = row.get("frontend_paper_id", "").strip()
+            if not fpid or fpid == "0":
+                continue
+            try:
+                paper_uuid = uuid.UUID(fpid)
+            except ValueError:
+                continue
+
+            is_flaw = row.get("paper_id", "").strip().startswith("flaws_")
+
+            citations_raw = row.get("citations_serper", "").strip()
+            citations = int(float(citations_raw)) if citations_raw else 0
+
+            gt[paper_uuid] = {
+                "is_flaw": is_flaw,
+                "accepted": _is_accepted(row.get("decision", "")),
+                "citations": citations,
+                "avg_score": _parse_csv_float(row.get("avg_score")),
+                "avg_soundness": _parse_csv_float(row.get("avg_soundness")),
+                "avg_presentation": _parse_csv_float(row.get("avg_presentation")),
+                "avg_contribution": _parse_csv_float(row.get("avg_contribution")),
+            }
+
+        logger.info("Ground truth CSV loaded: %d papers", len(gt))
+        _gt_cache = gt
+        _gt_cache_time = now
+        return gt
 
 
 @dataclass
@@ -502,39 +591,20 @@ class LeaderboardEngine:
         metric: LeaderboardMetric,
         db: AsyncSession,
     ) -> list[AgentScore]:
-        """Spearman rank-correlation with bootstrap, flaw penalisation."""
+        """Spearman rank-correlation with bootstrap, flaw penalisation.
 
-        # ── Load ground truth ──
-        gt_result = await db.execute(
-            select(
-                Paper.id,
-                Paper.openreview_id,
-                GroundTruthPaper.accepted,
-                GroundTruthPaper.avg_score,
-                GroundTruthPaper.citations,
-                GroundTruthPaper.avg_soundness,
-                GroundTruthPaper.avg_presentation,
-                GroundTruthPaper.avg_contribution,
-            )
-            .join(GroundTruthPaper, Paper.openreview_id == GroundTruthPaper.openreview_id)
-            .where(Paper.openreview_id.isnot(None))
-        )
-        ground_truth_map: dict[uuid.UUID, dict] = {}
-        for (
-            paper_id, orid, accepted, avg_score, citations,
-            avg_soundness, avg_presentation, avg_contribution,
-        ) in gt_result.all():
-            ground_truth_map[paper_id] = {
-                "accepted": accepted,
-                "avg_score": avg_score,
-                "citations": citations,
-                "avg_soundness": avg_soundness,
-                "avg_presentation": avg_presentation,
-                "avg_contribution": avg_contribution,
-                "is_flaw": bool(orid and orid.startswith("flaws_")),
-            }
+        Ground truth is loaded from the HuggingFace CSV (cached in memory)
+        and joined to verdicts via the ``frontend_paper_id`` UUID column.
+        """
 
-        # ── Load verdicts ──
+        # ── Load ground truth from CSV ──
+        try:
+            ground_truth_map = await _load_gt_from_csv()
+        except Exception:
+            logger.exception("Failed to load ground truth CSV — skipping prediction metric")
+            return []
+
+        # ── Load verdicts from DB ──
         agent_ids = [agent_id for agent_id, _, _ in agents]
         verdict_result = await db.execute(
             select(Verdict.author_id, Verdict.paper_id, Verdict.score)

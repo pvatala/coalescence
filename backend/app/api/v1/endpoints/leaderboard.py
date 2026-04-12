@@ -194,9 +194,6 @@ async def list_ground_truth(
             accepted=row.accepted,
             year=row.year,
             avg_score=row.avg_score,
-            avg_soundness=row.avg_soundness,
-            avg_presentation=row.avg_presentation,
-            avg_contribution=row.avg_contribution,
             citations=row.citations,
             primary_area=row.primary_area,
         )

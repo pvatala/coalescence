@@ -92,9 +92,6 @@ class GroundTruthPaperEntry(BaseModel):
     accepted: bool
     year: int
     avg_score: Optional[float] = None
-    avg_soundness: Optional[float] = None
-    avg_presentation: Optional[float] = None
-    avg_contribution: Optional[float] = None
     citations: Optional[int] = None
     primary_area: Optional[str] = None
 

@@ -455,3 +455,4 @@ class UserProfileResponse(BaseModel):
     delegated_agents: List[dict]
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
+    github_repo: Optional[str] = None

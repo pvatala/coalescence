@@ -309,7 +309,7 @@ def build_paper_leaderboard(ds, limit: int | None = None) -> list[dict]:
                 "stance_source": agr.get("stance_source", "none"),
                 "agreement_label": agr.get("label"),
                 "tentative": agr.get("tentative", False),
-                "url": f"/paper/{pid}",
+                "url": f"/p/{pid}",
             }
         )
     return entries
@@ -354,7 +354,7 @@ def build_reviewer_leaderboard(ds, limit: int = 15) -> list[dict]:
                 "avg_length": float(row.get("comment_depth", 0))
                 if "comment_depth" in df.columns
                 else 0.0,
-                "url": f"/user/{aid}",
+                "url": f"/a/{aid}",
             }
         )
     return entries
@@ -454,7 +454,7 @@ def build_ranking_comparison(ds, limit: int = 15) -> dict:
             {
                 "id": pid,
                 "title": str(title_map.get(pid, "?")),
-                "url": f"/paper/{pid}",
+                "url": f"/p/{pid}",
                 "ranks": ranks,
                 "outliers": [
                     name

@@ -1,7 +1,7 @@
 """
 Data export workflows:
   - IncrementalEventExport: every 15 min, exports new events since last run
-  - FullDataDumpWorkflow: on-demand or daily, exports papers, comments, events, actors
+  - FullDataDumpWorkflow: on-demand or daily, exports papers, comments, events, actors, verdicts
 """
 import json
 import tempfile
@@ -26,12 +26,14 @@ class FullDumpResult:
     actors_path: str
     votes_path: str
     domains_path: str
+    verdicts_path: str
     papers_count: int
     comments_count: int
     events_count: int
     actors_count: int
     votes_count: int
     domains_count: int
+    verdicts_count: int
 
 
 def _json_default(obj):
@@ -131,6 +133,7 @@ class DataExportActivities:
                 "pdf_url": p.pdf_url,
                 "github_repo_url": p.github_repo_url,
                 "arxiv_id": p.arxiv_id,
+                "openreview_id": p.openreview_id,
                 "authors": p.authors,
                 "full_text_length": len(p.full_text) if p.full_text else 0,
                 "submitter_id": str(p.submitter_id),
@@ -359,6 +362,40 @@ class DataExportActivities:
         activity.logger.info(f"Domains dump: {count}")
         return {"file_path": url, "count": count}
 
+    @activity.defn
+    async def export_full_verdicts(self, dump_id: str) -> dict:
+        """Export all verdicts with author info."""
+        activity.logger.info(f"Exporting verdicts for dump {dump_id}")
+
+        from sqlalchemy import select
+        from sqlalchemy.orm import joinedload
+        from app.db.session import AsyncSessionLocal
+        from app.models.platform import Verdict
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Verdict).options(joinedload(Verdict.author))
+            )
+            verdicts = result.scalars().unique().all()
+
+            records = [{
+                "id": str(v.id),
+                "paper_id": str(v.paper_id),
+                "author_id": str(v.author_id),
+                "author_type": v.author.actor_type.value if v.author else None,
+                "author_name": v.author.name if v.author else None,
+                "score": v.score,
+                "upvotes": v.upvotes,
+                "downvotes": v.downvotes,
+                "net_score": v.net_score,
+                "created_at": v.created_at,
+                "updated_at": v.updated_at,
+            } for v in verdicts]
+
+        url, count = await _write_and_upload(f"exports/{dump_id}/verdicts.jsonl", records)
+        activity.logger.info(f"Verdicts dump: {count}")
+        return {"file_path": url, "count": count}
+
 
 def _event_to_dict(event) -> dict:
     return {
@@ -431,6 +468,11 @@ class FullDataDumpWorkflow:
             dump_id,
             start_to_close_timeout=timedelta(minutes=5),
         )
+        verdicts = await workflow.execute_activity_method(
+            DataExportActivities.export_full_verdicts,
+            dump_id,
+            start_to_close_timeout=timedelta(minutes=10),
+        )
 
         return FullDumpResult(
             papers_path=papers["file_path"],
@@ -439,10 +481,12 @@ class FullDataDumpWorkflow:
             actors_path=actors["file_path"],
             votes_path=votes["file_path"],
             domains_path=domains["file_path"],
+            verdicts_path=verdicts["file_path"],
             papers_count=papers["count"],
             comments_count=comments["count"],
             events_count=events["count"],
             actors_count=actors["count"],
             votes_count=votes["count"],
             domains_count=domains["count"],
+            verdicts_count=verdicts["count"],
         )

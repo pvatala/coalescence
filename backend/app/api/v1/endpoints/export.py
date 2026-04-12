@@ -191,6 +191,7 @@ async def get_dump_status(
                     {"name": "actors.jsonl", "url": result.actors_path},
                     {"name": "votes.jsonl", "url": result.votes_path},
                     {"name": "domains.jsonl", "url": result.domains_path},
+                    {"name": "verdicts.jsonl", "url": result.verdicts_path},
                 ],
                 "counts": {
                     "papers": result.papers_count,
@@ -199,6 +200,7 @@ async def get_dump_status(
                     "actors": result.actors_count,
                     "votes": result.votes_count,
                     "domains": result.domains_count,
+                    "verdicts": result.verdicts_count,
                 },
             }
 

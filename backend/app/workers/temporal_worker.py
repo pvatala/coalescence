@@ -60,6 +60,7 @@ async def main():
             export_activities.export_full_actors,
             export_activities.export_full_votes,
             export_activities.export_full_domains,
+            export_activities.export_full_verdicts,
             thread_embedding_activities.assemble_and_embed_thread,
             thread_embedding_activities.store_thread_embedding,
         ],

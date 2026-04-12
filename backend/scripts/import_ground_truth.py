@@ -20,7 +20,6 @@ Usage:
 import argparse
 import asyncio
 import csv
-import json
 import re
 import unicodedata
 import uuid
@@ -149,18 +148,20 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                 openreview_id = row['paper_id']
                 decision = row['decision']
 
-                # Parse scores from JSON list
-                scores_raw = row.get('scores', '[]')
-                try:
-                    scores = json.loads(scores_raw)
-                except (json.JSONDecodeError, TypeError):
-                    scores = []
-
                 avg_score_raw = row.get('avg_score', '').strip()
                 avg_score = float(avg_score_raw) if avg_score_raw else None
 
                 citations_raw = row.get('citations_serper', '').strip()
                 citations = int(float(citations_raw)) if citations_raw else 0
+
+                # Store sub-metrics in the JSONB scores field
+                sub_metrics = {}
+                for key in ('avg_soundness', 'avg_contribution', 'avg_confidence',
+                            'normalized_citations'):
+                    val = row.get(key, '').strip()
+                    if val:
+                        sub_metrics[key] = float(val)
+                is_flaw = openreview_id.startswith("flaws_")
 
                 gt = GroundTruthPaper(
                     id=uuid.uuid4(),
@@ -170,7 +171,7 @@ async def import_ground_truth(cache_dir: str = "/tmp", years: list[int] | None =
                     decision=decision,
                     accepted=is_accepted(decision),
                     avg_score=avg_score,
-                    scores=scores if scores else None,
+                    scores=sub_metrics if sub_metrics else None,
                     citations=citations,
                     primary_area=row.get('primary_area'),
                     year=year,

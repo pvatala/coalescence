@@ -1,16 +1,22 @@
 import '@testing-library/jest-dom';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MasterListRow } from '../master-list/MasterListRow';
 import type { StandingsEntry } from '../lib/types';
 
-// MasterListRow is a <tr>, so rendering requires a table wrapper.
-function renderRow(entry: StandingsEntry) {
+function renderRow(
+  entry: StandingsEntry,
+  opts?: { onSelect?: (id: string) => void; isSelected?: boolean },
+) {
   return render(
-    <table>
-      <tbody>
-        <MasterListRow entry={entry} />
-      </tbody>
-    </table>,
+    <div role="listbox">
+      <MasterListRow
+        entry={entry}
+        onSelect={opts?.onSelect}
+        isSelected={opts?.isSelected}
+        gateMinVerdicts={50}
+        gateMinCorr={0}
+      />
+    </div>,
   );
 }
 
@@ -47,12 +53,13 @@ describe('MasterListRow', () => {
       trust_pct: 0.9,
       passed_gate: true,
       gate_reason: null,
+      distance_to_clear: 0,
     });
     const row = screen.getByTestId('master-list-row');
+    expect(row).toHaveAttribute('role', 'option');
     expect(row).toHaveAttribute('data-gate-kind', 'pass');
     expect(row.className).toMatch(/border-l-emerald-500/);
     expect(within(row).getByText('#1')).toBeInTheDocument();
-    expect(within(row).getByText('past gate')).toBeInTheDocument();
     expect(within(row).getByText('90%')).toBeInTheDocument();
   });
 
@@ -88,33 +95,34 @@ describe('MasterListRow', () => {
     expect(nameSpan.className).toMatch(/truncate/);
   });
 
-  it('all numeric cells carry whitespace-nowrap', () => {
-    renderRow({
-      ...baseEntry,
-      n_verdicts: 12345,
-      n_gt_matched: 678,
-      gt_corr_composite: 0.25,
-      peer_distance: 1.23,
-      trust_pct: 0.55,
-    });
+  it('marks the row as selected via aria-selected', () => {
+    renderRow(
+      {
+        ...baseEntry,
+        rank: 1,
+        passed_gate: true,
+        trust_pct: 0.5,
+        gate_reason: null,
+        distance_to_clear: 0,
+      },
+      { isSelected: true },
+    );
     const row = screen.getByTestId('master-list-row');
-    const numericCells = row.querySelectorAll('td.tabular-nums');
-    expect(numericCells.length).toBeGreaterThanOrEqual(5);
-    numericCells.forEach(td => {
-      expect(td.className).toMatch(/whitespace-nowrap/);
-    });
+    expect(row).toHaveAttribute('aria-selected', 'true');
+    expect(row).toHaveAttribute('data-selected', 'true');
   });
 
-  it('splits verdicts and GT-matched into separate columns', () => {
-    renderRow({
-      ...baseEntry,
-      n_verdicts: 104,
-      n_gt_matched: 0,
-    });
-    const row = screen.getByTestId('master-list-row');
-    // We should find "104" and "0" as distinct cells, not the legacy "104 (0 GT)".
-    expect(within(row).queryByText(/104\s*\(0\s*GT\)/)).toBeNull();
-    expect(within(row).getByText('104')).toBeInTheDocument();
-    expect(within(row).getByText('0')).toBeInTheDocument();
+  it('dispatches selection on click', () => {
+    const onSelect = jest.fn();
+    renderRow(baseEntry, { onSelect });
+    fireEvent.click(screen.getByTestId('master-list-row'));
+    expect(onSelect).toHaveBeenCalledWith('agent_short');
+  });
+
+  it('dispatches selection on Enter keydown', () => {
+    const onSelect = jest.fn();
+    renderRow(baseEntry, { onSelect });
+    fireEvent.keyDown(screen.getByTestId('master-list-row'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith('agent_short');
   });
 });

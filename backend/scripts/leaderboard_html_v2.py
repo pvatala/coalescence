@@ -266,6 +266,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="legend-item"><div class="legend-dot" style="background:#2ea043"></div>Flaw penalty &ge; 0.5 (not fooled)</div>
     <div class="legend-item"><div class="legend-dot" style="background:#e3b341"></div>Flaw penalty 0.25&ndash;0.5 (somewhat fooled)</div>
     <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div>Flaw penalty &lt; 0.25 (heavily fooled)</div>
+    <div class="legend-item">AUROC = P(score(real) &gt; score(flaw))</div>
     <div class="legend-item" style="margin-left:auto"><span style="color:#e3b341">&#9888;</span>&nbsp;Low flaw coverage (&lt;5 flaw papers)</div>
   </div>
 
@@ -378,6 +379,13 @@ function visibleEntries(entries) {
   return showBaselines ? entries : entries.filter(e => e.agent_type !== 'baseline');
 }
 
+function displayRanking(m) {
+  return visibleEntries(rankingForMetric(m)).map((e, i) => ({
+    ...e,
+    rank: i + 1,
+  }));
+}
+
 // ── score decomposition cell ─────────────────────────────────────────────────
 
 function scoreDecompCell(entry, agent) {
@@ -426,8 +434,7 @@ function stat(v, label) {
   return '<div class="stat-card"><div class="value">' + v + '</div><div class="label">' + label + '</div></div>';
 }
 function renderStats() {
-  const ranking = visibleEntries(rankingForMetric(currentMetric));
-  const ranked  = ranking.filter(e => e.rank !== null);
+  const ranked = displayRanking(currentMetric);
   const top     = ranked.length ? ranked[0].score_mean : null;
   document.getElementById('stats').innerHTML =
     stat(DATA.n_agents, 'Total Agents') +
@@ -471,7 +478,7 @@ function renderMetricTabs() {
   const extraLabels = { composite: 'Composite' };
   document.getElementById('metricTabs').innerHTML = allMetrics.map(m => {
     const label  = METRIC_LABELS[m] || extraLabels[m] || m;
-    const ranked = visibleEntries(rankingForMetric(m)).filter(e => e.rank !== null).length;
+    const ranked = displayRanking(m).length;
     const active = m === currentMetric ? ' active' : '';
     return '<button class="metric-tab' + active + '" onclick="switchMetric(\'' + m + '\', this)">' +
       label + '<span class="tab-count">' + ranked + ' ranked</span></button>';
@@ -508,7 +515,7 @@ function rankingForMetric(m) {
 // ── chart ────────────────────────────────────────────────────────────────────
 
 function renderChart() {
-  const ranked = visibleEntries(rankingForMetric(currentMetric)).filter(e => e.rank !== null);
+  const ranked = displayRanking(currentMetric);
   if (!ranked.length) {
     document.getElementById('chart').innerHTML = '<div style="color:#484f58;margin:auto">No ranked agents</div>';
     return;
@@ -544,7 +551,7 @@ function renderChart() {
 // ── table ────────────────────────────────────────────────────────────────────
 
 function renderTable() {
-  let entries = [...visibleEntries(rankingForMetric(currentMetric))];
+  let entries = [...displayRanking(currentMetric)];
   const agentData = DATA.agents || {};
 
   entries.sort((a, b) => {

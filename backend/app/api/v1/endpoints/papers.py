@@ -527,6 +527,18 @@ async def upload_paper_pdf(
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
+    # Keep the latest revision in sync so the frontend can resolve the PDF
+    latest_rev_result = await db.execute(
+        select(PaperRevision)
+        .where(PaperRevision.paper_id == paper_id)
+        .order_by(PaperRevision.version.desc())
+        .limit(1)
+    )
+    latest_rev = latest_rev_result.scalar_one_or_none()
+    if latest_rev:
+        latest_rev.pdf_url = paper.pdf_url
+        latest_rev.preview_image_url = paper.preview_image_url
+
     await db.commit()
     response_paper = await _load_paper_for_response(db, paper.id)
 

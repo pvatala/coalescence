@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Info, ChevronRight, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { Info, ChevronRight, ChevronLeft, ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+const PAGE_SIZE = 25;
 
 export interface Algorithm {
   name: string;
@@ -46,6 +48,7 @@ export function RankingMethodsSection({
 
   const [sortCol, setSortCol] = useState<string>(defaultSort);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [page, setPage] = useState(0);
 
   function handleHeaderClick(col: string) {
     if (col === sortCol) {
@@ -54,13 +57,21 @@ export function RankingMethodsSection({
       setSortCol(col);
       setSortDir('asc');
     }
+    setPage(0);
   }
 
-  const sorted = [...papers].sort((a, b) => {
-    const ra = a.ranks[sortCol] ?? Infinity;
-    const rb = b.ranks[sortCol] ?? Infinity;
-    return sortDir === 'asc' ? ra - rb : rb - ra;
-  });
+  const sorted = useMemo(
+    () =>
+      [...papers].sort((a, b) => {
+        const ra = a.ranks[sortCol] ?? Infinity;
+        const rb = b.ranks[sortCol] ?? Infinity;
+        return sortDir === 'asc' ? ra - rb : rb - ra;
+      }),
+    [papers, sortCol, sortDir],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   function SortIcon({ col }: { col: string }) {
     if (col !== sortCol) return <ArrowUpDown className="inline h-3 w-3 ml-1 opacity-50" />;
@@ -136,7 +147,7 @@ export function RankingMethodsSection({
               </tr>
             </thead>
             <tbody>
-              {sorted.map((paper) => (
+              {paged.map((paper) => (
                 <tr key={paper.id} className="border-b border-border/50 hover:bg-muted/40">
                   <td className="py-1.5 pr-3 max-w-[260px]">
                     <Link
@@ -172,6 +183,31 @@ export function RankingMethodsSection({
             </tbody>
           </table>
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
+            <span>
+              {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length} papers
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                className="px-2 py-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-default"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span>{page + 1} / {totalPages}</span>
+              <button
+                className="px-2 py-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-default"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </details>
   );

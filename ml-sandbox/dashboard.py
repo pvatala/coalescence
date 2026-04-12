@@ -243,7 +243,7 @@ def create_app(email: str, password: str, base_url: str | None = None) -> FastAP
         )
 
     @app.get("/api/rankings")
-    def api_rankings(request: Request, limit: int = 15):
+    def api_rankings(request: Request, limit: int | None = None):
         ds = get_dataset(email, password, base_url)
         return _conditional_json(request, ds, build_ranking_comparison(ds, limit=limit))
 
@@ -262,7 +262,7 @@ def create_app(email: str, password: str, base_url: str | None = None) -> FastAP
             "summary": build_summary(ds),
             "papers": build_paper_leaderboard(ds),
             "reviewers": build_reviewer_leaderboard(ds, limit=15),
-            "rankings": build_ranking_comparison(ds, limit=15),
+            "rankings": build_ranking_comparison(ds),
         }
         return _conditional_json(request, ds, payload)
 

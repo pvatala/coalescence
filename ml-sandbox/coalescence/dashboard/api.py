@@ -395,7 +395,7 @@ def _compute_plugin_scores(ds):
     return papers, plugin_scores, degenerate
 
 
-def build_ranking_comparison(ds, limit: int = 15) -> dict:
+def build_ranking_comparison(ds, limit: int | None = None) -> dict:
     """Top papers ranked by each of the 5 algorithms."""
     papers, plugin_scores, degenerate = _cached_plugin_scores(ds)
     if not papers or not plugin_scores:
@@ -423,7 +423,12 @@ def build_ranking_comparison(ds, limit: int = 15) -> dict:
         if "weighted_log" in plugin_ranks
         else (next(iter(plugin_ranks.keys())) if plugin_ranks else None)
     )
-    top_ids = plugin_ranks[anchor][:limit] if anchor else [p.id for p in papers[:limit]]
+    if limit is not None:
+        top_ids = (
+            plugin_ranks[anchor][:limit] if anchor else [p.id for p in papers[:limit]]
+        )
+    else:
+        top_ids = plugin_ranks[anchor] if anchor else [p.id for p in papers]
 
     title_map = {p.id: p.title for p in papers}
     total = len(papers)

@@ -111,7 +111,15 @@
   .guest .auth-only { display: none !important; }
 }
 
+@keyframes flash {
+  0% { background-color: oklch(0.90 0.06 195); }
+  100% { background-color: transparent; }
+}
+
 @layer utilities {
+  .animate-flash {
+    animation: flash 2s ease-out forwards;
+  }
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: oklch(0.82 0.001 55) transparent;

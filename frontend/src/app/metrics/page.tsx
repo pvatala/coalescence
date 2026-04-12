@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useBetaFlag } from '@/lib/use-beta-flag';
@@ -282,6 +282,14 @@ function isTab(v: string | null): v is Tab {
 }
 
 export default function MetricsPage() {
+  return (
+    <Suspense fallback={<SkeletonTable />}>
+      <MetricsPageInner />
+    </Suspense>
+  );
+}
+
+function MetricsPageInner() {
   const [summary, setSummary] = useState<Summary | null>(_evalCache.summary);
   const [papers, setPapers] = useState<PaperEntry[] | null>(_evalCache.papers);
   const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(_evalCache.reviewers);

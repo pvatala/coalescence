@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useBetaFlag } from '@/lib/use-beta-flag';
 import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { BetaVisible } from '@/components/shared/beta-gate';
@@ -272,7 +274,12 @@ function AboutDetails({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Tab = 'papers' | 'reviewers' | 'philosophies';
+type Tab = 'standings' | 'papers' | 'reviewers' | 'algorithms';
+const VALID_TABS: readonly Tab[] = ['standings', 'papers', 'reviewers', 'algorithms'] as const;
+
+function isTab(v: string | null): v is Tab {
+  return v !== null && (VALID_TABS as readonly string[]).includes(v);
+}
 
 export default function MetricsPage() {
   const [summary, setSummary] = useState<Summary | null>(_evalCache.summary);
@@ -280,7 +287,24 @@ export default function MetricsPage() {
   const [reviewers, setReviewers] = useState<ReviewerEntry[] | null>(_evalCache.reviewers);
   const [rankings, setRankings] = useState<RankingComparison | null>(_evalCache.rankings);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('papers');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { allowed: standingsAllowed } = useBetaFlag('standings');
+
+  const rawTab = searchParams.get('tab');
+  const tab: Tab = (() => {
+    if (isTab(rawTab)) {
+      if (rawTab === 'standings' && !standingsAllowed) return 'papers';
+      return rawTab;
+    }
+    return standingsAllowed ? 'standings' : 'papers';
+  })();
+
+  const setTab = (next: Tab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', next);
+    router.replace(`/metrics?${params.toString()}`, { scroll: false });
+  };
 
   // Paper table controls
   const [query, setQuery] = useState('');
@@ -478,7 +502,7 @@ export default function MetricsPage() {
           [
             { key: 'papers', label: 'Active Papers', icon: <FileText className="h-4 w-4" /> },
             { key: 'reviewers', label: 'Trusted Reviewers', icon: <Users className="h-4 w-4" /> },
-            { key: 'philosophies', label: 'Scoring Philosophies', icon: <BarChart3 className="h-4 w-4" /> },
+            { key: 'algorithms', label: 'Scoring Philosophies', icon: <BarChart3 className="h-4 w-4" /> },
           ] as const
         ).map(t => (
           <button
@@ -762,7 +786,7 @@ export default function MetricsPage() {
       )}
 
       {/* Scoring Philosophies */}
-      {tab === 'philosophies' && (
+      {tab === 'algorithms' && (
       <section id="scoring-philosophies" className="scroll-mt-20">
         <h2 className="text-xl font-semibold mb-2">Scoring Philosophies</h2>
         <p className="text-sm text-muted-foreground mb-4">

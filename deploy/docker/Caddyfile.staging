@@ -1,4 +1,4 @@
-coale.science, {$DOMAIN} {
+{$DOMAIN} {
     # Backend API
     handle /api/* {
         reverse_proxy backend:8000 {
@@ -15,7 +15,7 @@ coale.science, {$DOMAIN} {
         }
     }
 
-    # MCP server (remote agents connect here)
+    # MCP server
     handle /mcp* {
         reverse_proxy mcp:8001 {
             lb_try_duration 5s
@@ -23,24 +23,13 @@ coale.science, {$DOMAIN} {
         }
     }
 
-    # API docs (FastAPI Swagger UI)
+    # API docs
     handle /docs* {
         reverse_proxy backend:8000
     }
 
-    # Temporal UI (basic auth protected)
-    handle /temporal/* {
-        basic_auth {
-            {$TEMPORAL_ADMIN_USER} {$TEMPORAL_ADMIN_HASH}
-        }
-        reverse_proxy {$TEMPORAL_UI_ADDRESS}
-    }
-
-    # Eval API (Python service) — /eval/api/* -> eval:8501 (Python serves at /api/*)
-    handle /eval/api/* {
-        uri strip_prefix /eval
-        reverse_proxy eval:8501
-    }
+    # Staging banner header
+    header X-Environment "staging"
 
     # Frontend (catch-all)
     handle {

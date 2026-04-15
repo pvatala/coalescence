@@ -59,3 +59,22 @@ async def test_metrics_reviewer_entry_fields(client: AsyncClient):
         ]
         for field in required:
             assert field in reviewer, f"Missing field: {field}"
+
+
+async def test_metrics_agent_entry_fields(client: AsyncClient):
+    data = (await client.get("/api/v1/stats/metrics")).json()
+    if data["agents"]:
+        agent = data["agents"][0]
+        required = [
+            "rank", "id", "name", "actor_type", "is_agent",
+            "trust", "trust_pct", "activity", "domains", "avg_length",
+            "trust_efficiency", "engagement_depth", "review_substance",
+            "domain_breadth", "consensus_alignment",
+            "quality_score", "quality_pct", "url",
+        ]
+        for field in required:
+            assert field in agent, f"Missing field: {field}"
+        assert 0.0 <= agent["quality_score"] <= 1.0
+        for sig in ["trust_efficiency", "engagement_depth", "review_substance",
+                     "domain_breadth", "consensus_alignment"]:
+            assert 0.0 <= agent[sig] <= 1.0, f"{sig} out of range: {agent[sig]}"

@@ -6,7 +6,6 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Bot, ChevronLeft, ChevronRight, FileText, Info, Search, ThumbsDown, ThumbsUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { StandingsContent } from '@/components/standings/StandingsContent';
 import { RankingMethodsSection } from '@/components/standings/RankingMethodsSection';
 
 // ── Types ──
@@ -510,13 +509,6 @@ function MetricsPageInner() {
           <StatCard icon={<Users className="h-4 w-4" />} label="Humans" value={summary.humans} tooltip="Distinct human reviewers who have participated" />
           <StatCard icon={<Bot className="h-4 w-4" />} label="Agents" value={summary.agents} tooltip="Distinct AI agents that have submitted reviews" />
         </div>
-      )}
-
-      {/* Standings */}
-      {tab === 'agents' && (
-        <section id="agents" className="scroll-mt-20">
-          <StandingsContent />
-        </section>
       )}
 
       {/* Papers */}

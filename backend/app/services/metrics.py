@@ -125,32 +125,41 @@ async def _compute_paper_agreement(
     all_papers_q = await db.execute(select(Paper.id))
     all_paper_ids = {row[0] for row in all_papers_q.all()}
 
+    # Track which papers had explicit vs proxied stances
     result: dict[uuid.UUID, dict] = {}
     for pid in all_paper_ids:
+        exp = explicit.get(pid, {})
+        prx = proxied.get(pid, {})
         stances: dict[uuid.UUID, int] = {}
-        stances.update(explicit.get(pid, {}))
-        stances.update(proxied.get(pid, {}))
+        stances.update(exp)
+        stances.update(prx)
 
         n = len(stances)
-        if n < 3:
+
+        if n == 0:
             result[pid] = {
-                "agreement": 0.0,
+                "agreement": None,
                 "label": "unrated",
                 "tentative": False,
-                "ci_low": 0.0,
-                "ci_high": 1.0,
-                "n": n,
+                "ci_low": None,
+                "ci_high": None,
+                "n": 0,
+                "p_positive": None,
+                "direction": None,
+                "stance_source": "none",
             }
             continue
 
         positives = sum(1 for s in stances.values() if s > 0)
-        p_positive = positives / n
-        agreement = 1.0 - 2.0 * min(p_positive, 1.0 - p_positive)
+        p_pos = positives / n
+        agreement = 1.0 - 2.0 * min(p_pos, 1.0 - p_pos)
 
         majority = max(positives, n - positives)
         ci_low, ci_high = _wilson_interval(majority, n)
 
-        if agreement >= 0.75:
+        if n < 3:
+            label = "unrated"
+        elif agreement >= 0.75:
             label = "consensus"
         elif agreement >= 0.25:
             label = "leaning"
@@ -159,6 +168,24 @@ async def _compute_paper_agreement(
 
         tentative = n < 6 and (ci_high - ci_low) > 0.5
 
+        if p_pos > 0.5:
+            direction = "positive"
+        elif p_pos < 0.5:
+            direction = "negative"
+        else:
+            direction = "split"
+
+        has_exp = len(exp) > 0
+        has_prx = len(prx) > 0
+        if has_exp and has_prx:
+            stance_source = "mixed"
+        elif has_exp:
+            stance_source = "explicit"
+        elif has_prx:
+            stance_source = "proxied"
+        else:
+            stance_source = "none"
+
         result[pid] = {
             "agreement": round(agreement, 4),
             "label": label,
@@ -166,6 +193,9 @@ async def _compute_paper_agreement(
             "ci_low": round(ci_low, 4),
             "ci_high": round(ci_high, 4),
             "n": n,
+            "p_positive": round(p_pos, 4),
+            "direction": direction,
+            "stance_source": stance_source,
         }
 
     return result
@@ -187,6 +217,7 @@ def _system_agreement_summary(
     return {
         "median_agreement": med,
         "label_counts": dict(label_counts),
+        "n_rated": len(rated_agreements),
     }
 
 
@@ -230,7 +261,8 @@ async def build_papers(
 
     # Fetch papers
     papers_q = await db.execute(
-        select(Paper.id, Paper.title, Paper.domains, Paper.net_score)
+        select(Paper.id, Paper.title, Paper.domains, Paper.net_score,
+               Paper.upvotes, Paper.downvotes)
     )
     papers = papers_q.all()
 
@@ -251,7 +283,7 @@ async def build_papers(
     pvote_counts: dict[uuid.UUID, int] = dict(pvote_q.all())
 
     rows: list[dict] = []
-    for pid, title, domains, net_score in papers:
+    for pid, title, domains, net_score, upvotes, downvotes in papers:
         rc = root_counts.get(pid, 0)
         pv = pvote_counts.get(pid, 0)
         engagement = rc * 2 + pv
@@ -260,24 +292,30 @@ async def build_papers(
         primary_domain = domain_list[0].removeprefix("d/") if domain_list else None
 
         agr = agreement_by_paper.get(pid, {
-            "agreement": 0.0, "label": "unrated", "tentative": False,
-            "ci_low": 0.0, "ci_high": 1.0, "n": 0,
+            "agreement": None, "label": "unrated", "tentative": False,
+            "ci_low": None, "ci_high": None, "n": 0,
+            "p_positive": None, "direction": None, "stance_source": "none",
         })
 
         rows.append({
-            "paper_id": str(pid),
+            "id": str(pid),
             "title": title,
             "domain": primary_domain,
             "engagement": engagement,
-            "root_comment_count": rc,
-            "vote_count": pv,
+            "n_reviews": rc,
+            "n_votes": pv,
             "net_score": net_score,
+            "upvotes": upvotes or 0,
+            "downvotes": downvotes or 0,
             "agreement": agr["agreement"],
             "agreement_label": agr["label"],
-            "agreement_tentative": agr["tentative"],
+            "tentative": agr["tentative"],
             "ci_low": agr["ci_low"],
             "ci_high": agr["ci_high"],
-            "reviewer_count": agr["n"],
+            "n_reviewers": agr["n"],
+            "p_positive": agr["p_positive"],
+            "direction": agr["direction"],
+            "stance_source": agr["stance_source"],
             "url": f"/p/{pid}",
         })
 
@@ -363,15 +401,14 @@ async def build_reviewers(db: AsyncSession, limit: int = 15) -> list[dict]:
         name, atype = actors.get(aid, ("Unknown", "human"))
         atype_str = _actor_type_str(atype)
         rows.append({
-            "actor_id": str(aid),
+            "id": str(aid),
             "name": name,
+            "actor_type": atype_str,
             "is_agent": "agent" in atype_str,
-            "community_trust": trust_map[aid],
+            "trust": trust_map[aid],
             "trust_pct": round(trust_map[aid] / max_trust, 4),
             "activity": comment_counts.get(aid, 0) + vote_counts.get(aid, 0),
-            "comment_count": comment_counts.get(aid, 0),
-            "vote_count": vote_counts.get(aid, 0),
-            "domain_breadth": len(author_domains.get(aid, set())),
+            "domains": len(author_domains.get(aid, set())),
             "avg_length": round(avg_lengths.get(aid, 0.0), 1),
             "rank": rank,
             "url": f"/a/{aid}",
@@ -384,14 +421,15 @@ async def build_rankings(db: AsyncSession) -> dict:
     """Five-algorithm ranking comparison over all papers."""
     # Load papers
     papers_q = await db.execute(
-        select(Paper.id, Paper.net_score)
+        select(Paper.id, Paper.net_score, Paper.title)
     )
     papers_list = papers_q.all()
     if not papers_list:
-        return {"algorithms": {}, "papers": [], "anchor": "weighted_log"}
+        return {"algorithms": [], "papers": [], "total_papers": 0}
 
-    paper_ids = {pid for pid, _ in papers_list}
-    paper_net: dict[uuid.UUID, int] = {pid: ns for pid, ns in papers_list}
+    paper_ids = {pid for pid, _, _ in papers_list}
+    paper_net: dict[uuid.UUID, int] = {pid: ns for pid, ns, _ in papers_list}
+    paper_title: dict[uuid.UUID, str] = {pid: t for pid, _, t in papers_list}
 
     # Load paper votes
     pv_q = await db.execute(
@@ -574,26 +612,35 @@ async def build_rankings(db: AsyncSession) -> dict:
     # Build output
     paper_rows = []
     for pid in anchor_order:
-        row = {"paper_id": str(pid)}
+        ranks: dict[str, int | None] = {}
+        outliers: list[str] = []
         for algo in all_score_maps:
-            row[algo] = {
-                "score": round(all_score_maps[algo].get(pid, 0.0), 4),
-                "rank": algo_ranks[algo][pid],
-                "outlier": pid in outlier_set[algo],
-            }
-        paper_rows.append(row)
+            if algo_degenerate.get(algo, False):
+                ranks[algo] = None
+            else:
+                ranks[algo] = algo_ranks[algo][pid]
+            if pid in outlier_set[algo]:
+                outliers.append(algo)
+        paper_rows.append({
+            "id": str(pid),
+            "title": paper_title.get(pid, ""),
+            "url": f"/p/{pid}",
+            "ranks": ranks,
+            "outliers": outliers,
+        })
 
-    algorithms = {}
+    algorithms = []
     for algo, meta in _RANKING_META.items():
-        algorithms[algo] = {
+        algorithms.append({
+            "name": algo,
             **meta,
             "degenerate": algo_degenerate.get(algo, False),
-        }
+        })
 
     return {
         "algorithms": algorithms,
         "papers": paper_rows,
-        "anchor": "weighted_log",
+        "total_papers": len(paper_ids),
     }
 
 

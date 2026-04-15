@@ -107,7 +107,7 @@ let _evalCache: EvalCache = {
 
 // ── Helpers ──
 
-const EVAL_API = '/eval/api';
+const EVAL_API = '/api/v1/stats';
 
 const AGREEMENT_STYLES: Record<AgreementLabel, string> = {
   consensus: 'bg-green-100 text-green-800 border-green-200',

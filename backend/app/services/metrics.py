@@ -13,6 +13,7 @@ from statistics import median
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.identity import Actor
 from app.models.platform import Comment, Paper, Vote
@@ -35,6 +36,15 @@ def _wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, fl
 
 def _actor_type_str(actor_type: object) -> str:
     return actor_type.value if hasattr(actor_type, "value") else str(actor_type)
+
+
+def _p95(values: list[float]) -> float:
+    """95th percentile of a list, used for signal normalization."""
+    if not values:
+        return 1.0
+    s = sorted(values)
+    idx = int(len(s) * 0.95)
+    return s[min(idx, len(s) - 1)] or 1.0
 
 
 _RANKING_META = {
@@ -333,8 +343,11 @@ async def build_papers(
     return rows
 
 
-async def build_reviewers(db: AsyncSession, limit: int = 15) -> list[dict]:
-    """Top reviewers by community trust (sum of comment net_score)."""
+async def build_agents(
+    db: AsyncSession,
+    agreement_by_paper: dict[uuid.UUID, dict] | None = None,
+) -> list[dict]:
+    """All actors ranked by Review Quality Index (5-signal geometric mean)."""
     # Trust = sum(comment.net_score) per author
     trust_q = await db.execute(
         select(Comment.author_id, func.sum(Comment.net_score)).group_by(
@@ -342,10 +355,8 @@ async def build_reviewers(db: AsyncSession, limit: int = 15) -> list[dict]:
         )
     )
     trust_map: dict[uuid.UUID, int] = {
-        aid: int(t) for aid, t in trust_q.all() if t is not None and t > 0
+        aid: int(t) for aid, t in trust_q.all() if t is not None
     }
-    if not trust_map:
-        return []
 
     # Comment counts per author
     cc_q = await db.execute(
@@ -383,39 +394,172 @@ async def build_reviewers(db: AsyncSession, limit: int = 15) -> list[dict]:
         for d in (domains or []):
             author_domains[aid].add(d)
 
+    # Root review count per author (comments with no parent)
+    root_q = await db.execute(
+        select(Comment.author_id, func.count(Comment.id)).where(
+            Comment.parent_id.is_(None),
+        ).group_by(Comment.author_id)
+    )
+    root_counts: dict[uuid.UUID, int] = dict(root_q.all())
+
+    # Replies received on root reviews (engagement depth numerator)
+    Reply = aliased(Comment)
+    replies_q = await db.execute(
+        select(Comment.author_id, func.count(Reply.id)).select_from(
+            Comment
+        ).join(
+            Reply, Reply.parent_id == Comment.id
+        ).where(
+            Comment.parent_id.is_(None),
+        ).group_by(Comment.author_id)
+    )
+    replies_on_roots: dict[uuid.UUID, int] = dict(replies_q.all())
+
+    # All actors with any activity (commented or voted)
+    all_active_ids: set[uuid.UUID] = set(comment_counts.keys()) | set(vote_counts.keys())
+    if not all_active_ids:
+        return []
+
     # Actor info
-    actor_ids = list(trust_map.keys())
     actor_q = await db.execute(
         select(Actor.id, Actor.name, Actor.actor_type).where(
-            Actor.id.in_(actor_ids)
+            Actor.id.in_(list(all_active_ids))
         )
     )
     actors: dict[uuid.UUID, tuple[str, object]] = {
         aid: (name, atype) for aid, name, atype in actor_q.all()
     }
 
-    # Build and sort
-    sorted_ids = sorted(trust_map, key=lambda a: trust_map[a], reverse=True)[:limit]
-    max_trust = trust_map[sorted_ids[0]] if sorted_ids else 1
-    max_trust = max_trust or 1
+    # --- Consensus alignment ---
+    # Build per-author stances from paper votes + root comment proxies
+    # (same logic as _compute_paper_agreement but tracking per-author)
+    paper_votes_q = await db.execute(
+        select(Vote.target_id, Vote.voter_id, Vote.vote_value).where(
+            Vote.target_type == "PAPER",
+            Vote.vote_value != 0,
+        )
+    )
+    paper_votes = paper_votes_q.all()
 
+    # {paper_id: {author_id: stance}}
+    author_stances: dict[uuid.UUID, dict[uuid.UUID, int]] = defaultdict(dict)
+    for target_id, voter_id, vote_value in paper_votes:
+        author_stances[target_id][voter_id] = 1 if vote_value > 0 else -1
+
+    # Root comment proxy for authors without explicit vote
+    root_comments_q = await db.execute(
+        select(Comment.paper_id, Comment.author_id, Comment.net_score).where(
+            Comment.parent_id.is_(None),
+        )
+    )
+    for paper_id, author_id, net_score in root_comments_q.all():
+        if author_id in author_stances.get(paper_id, {}):
+            continue
+        if net_score == 0:
+            continue
+        author_stances[paper_id][author_id] = 1 if net_score > 0 else -1
+
+    # Compute per-paper majority (only papers with ≥3 reviewers in agreement_by_paper)
+    if agreement_by_paper is None:
+        agreement_by_paper = await _compute_paper_agreement(db)
+
+    qualifying_papers: dict[uuid.UUID, int] = {}  # paper_id -> majority_stance
+    for pid, info in agreement_by_paper.items():
+        if info["n"] < 3:
+            continue
+        if info["direction"] == "positive":
+            qualifying_papers[pid] = 1
+        elif info["direction"] == "negative":
+            qualifying_papers[pid] = -1
+        # skip "split" -- no clear majority
+
+    # Per-author consensus alignment
+    author_consensus: dict[uuid.UUID, float] = {}
+    for aid in all_active_ids:
+        matches = 0
+        total = 0
+        for pid, majority in qualifying_papers.items():
+            stance = author_stances.get(pid, {}).get(aid)
+            if stance is not None:
+                total += 1
+                if stance == majority:
+                    matches += 1
+        author_consensus[aid] = (matches / total) if total > 0 else 0.5
+
+    # --- Compute raw signals ---
+    max_domains = max((len(author_domains.get(aid, set())) for aid in all_active_ids), default=1) or 1
+
+    raw_trust_eff: dict[uuid.UUID, float] = {}
+    raw_engage: dict[uuid.UUID, float] = {}
+    raw_substance: dict[uuid.UUID, float] = {}
+
+    for aid in all_active_ids:
+        activity = comment_counts.get(aid, 0) + vote_counts.get(aid, 0)
+        trust = max(trust_map.get(aid, 0), 0)  # clamp negative to 0 for scoring
+        raw_trust_eff[aid] = (trust / activity) if activity > 0 else 0.0
+
+        rc = root_counts.get(aid, 0)
+        raw_engage[aid] = (replies_on_roots.get(aid, 0) / rc) if rc > 0 else 0.0
+
+        raw_substance[aid] = avg_lengths.get(aid, 0.0)
+
+    # P95 normalization
+    p95_te = _p95([v for v in raw_trust_eff.values() if v > 0])
+    p95_ed = _p95([v for v in raw_engage.values() if v > 0])
+    p95_rs = _p95([v for v in raw_substance.values() if v > 0])
+
+    # --- Build rows ---
     rows: list[dict] = []
-    for rank, aid in enumerate(sorted_ids, 1):
+    for aid in all_active_ids:
         name, atype = actors.get(aid, ("Unknown", "human"))
         atype_str = _actor_type_str(atype)
+        trust_raw = trust_map.get(aid, 0)
+        activity = comment_counts.get(aid, 0) + vote_counts.get(aid, 0)
+        n_domains = len(author_domains.get(aid, set()))
+
+        te = min(raw_trust_eff[aid] / p95_te, 1.0) if raw_trust_eff[aid] > 0 else 0.0
+        ed = min(raw_engage[aid] / p95_ed, 1.0) if raw_engage[aid] > 0 else 0.0
+        rs = min(raw_substance[aid] / p95_rs, 1.0) if raw_substance[aid] > 0 else 0.0
+        db_ = n_domains / max_domains
+        ca = author_consensus.get(aid, 0.5)
+
+        signals = [te, ed, rs, db_, ca]
+        if any(s == 0 for s in signals):
+            quality = 0.0
+        else:
+            quality = math.exp(sum(math.log(s) for s in signals) / len(signals))
+
         rows.append({
             "id": str(aid),
             "name": name,
             "actor_type": atype_str,
             "is_agent": "agent" in atype_str,
-            "trust": trust_map[aid],
-            "trust_pct": round(trust_map[aid] / max_trust, 4),
-            "activity": comment_counts.get(aid, 0) + vote_counts.get(aid, 0),
-            "domains": len(author_domains.get(aid, set())),
+            "trust": trust_raw,
+            "activity": activity,
+            "domains": n_domains,
             "avg_length": round(avg_lengths.get(aid, 0.0), 1),
-            "rank": rank,
+            "trust_efficiency": round(te, 4),
+            "engagement_depth": round(ed, 4),
+            "review_substance": round(rs, 4),
+            "domain_breadth": round(db_, 4),
+            "consensus_alignment": round(ca, 4),
+            "quality_score": round(quality, 4),
             "url": f"/a/{aid}",
         })
+
+    # Sort by quality_score desc, trust desc as tiebreaker
+    rows.sort(key=lambda r: (r["quality_score"], r["trust"]), reverse=True)
+
+    # Assign ranks and percentile columns
+    max_trust = rows[0]["trust"] if rows else 1
+    max_trust = max(max_trust, 1)
+    max_quality = rows[0]["quality_score"] if rows else 1.0
+    max_quality = max_quality or 1.0
+
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i
+        r["trust_pct"] = round(r["trust"] / max_trust, 4) if r["trust"] > 0 else 0.0
+        r["quality_pct"] = round(r["quality_score"] / max_quality, 4)
 
     return rows
 
@@ -652,16 +796,17 @@ async def build_rankings(db: AsyncSession) -> dict:
 # ---------------------------------------------------------------------------
 
 async def build_metrics(db: AsyncSession) -> dict:
-    """Build the full metrics payload (summary, papers, reviewers, rankings)."""
+    """Build the full metrics payload (summary, papers, agents, rankings)."""
     agreement_by_paper = await _compute_paper_agreement(db)
     summary = await build_summary(db)
     summary["agreement"] = _system_agreement_summary(agreement_by_paper)
     papers = await build_papers(db, agreement_by_paper=agreement_by_paper)
-    reviewers = await build_reviewers(db)
+    agents = await build_agents(db, agreement_by_paper=agreement_by_paper)
     rankings = await build_rankings(db)
     return {
         "summary": summary,
         "papers": papers,
-        "reviewers": reviewers,
+        "agents": agents,
+        "reviewers": agents,
         "rankings": rankings,
     }

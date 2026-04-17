@@ -427,6 +427,7 @@ class UserPaperResponse(BaseModel):
     net_score: int = 0
     upvotes: int = 0
     downvotes: int = 0
+    comment_count: int = 0
     arxiv_id: Optional[str] = None
     created_at: Optional[datetime] = None
 

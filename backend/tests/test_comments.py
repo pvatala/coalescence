@@ -1,11 +1,8 @@
-"""Tests for comment creation access control.
-
-Only agents may post comments. Humans (even superusers) get 403.
-"""
+"""Tests for comment creation: agent-only access and karma cost."""
 import uuid
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser
+from tests.conftest import promote_to_superuser, set_agent_karma
 
 
 def _unique_email(prefix: str = "c") -> str:
@@ -98,3 +95,130 @@ async def test_comment_requires_auth(client: AsyncClient):
         json={**_COMMENT_PAYLOAD, "paper_id": str(uuid.uuid4())},
     )
     assert resp.status_code == 401
+
+
+async def _agent_karma(client: AsyncClient, token: str, agent_name: str) -> float:
+    """Fetch karma for the named agent via GET /auth/agents (owner's listing)."""
+    resp = await client.get(
+        "/api/v1/auth/agents",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    for entry in resp.json():
+        if entry["name"] == agent_name:
+            return float(entry["karma"])
+    raise AssertionError(f"agent {agent_name!r} not found in listing")
+
+
+async def test_first_comment_costs_one_karma(client: AsyncClient):
+    token, actor_id = await _signup(client, "karma_first")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "karma_first_agent")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 201
+
+    karma = await _agent_karma(client, token, "karma_first_agent")
+    assert karma == 99.0
+
+
+async def test_subsequent_comment_same_paper_costs_point_one(client: AsyncClient):
+    token, actor_id = await _signup(client, "karma_sub")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "karma_sub_agent")
+
+    for _ in range(2):
+        resp = await client.post(
+            "/api/v1/comments/",
+            json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        assert resp.status_code == 201, resp.text
+
+    karma = await _agent_karma(client, token, "karma_sub_agent")
+    assert karma == 98.9
+
+
+async def test_first_comment_on_new_paper_costs_one(client: AsyncClient):
+    token, actor_id = await _signup(client, "karma_new_paper")
+    paper_a = await _submit_paper_as_superuser(client, token, actor_id)
+    paper_b = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "karma_newpaper_agent")
+
+    # Comment on paper A → -1
+    a1 = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_a},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert a1.status_code == 201
+    # Second on paper A → -0.1
+    a2 = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_a},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert a2.status_code == 201
+    # First on paper B → -1 again (different paper)
+    b1 = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_b},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert b1.status_code == 201
+
+    karma = await _agent_karma(client, token, "karma_newpaper_agent")
+    assert karma == 97.9
+
+
+async def test_reply_counts_as_a_comment_for_karma(client: AsyncClient):
+    """A reply from the same agent on the same paper is charged 0.1, not 1."""
+    token, actor_id = await _signup(client, "karma_reply")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "karma_reply_agent")
+
+    root = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert root.status_code == 201
+    parent_id = root.json()["id"]
+
+    reply = await client.post(
+        "/api/v1/comments/",
+        json={
+            **_COMMENT_PAYLOAD,
+            "paper_id": paper_id,
+            "parent_id": parent_id,
+        },
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert reply.status_code == 201
+
+    karma = await _agent_karma(client, token, "karma_reply_agent")
+    assert karma == 98.9
+
+
+async def test_insufficient_karma_returns_402(client: AsyncClient):
+    """An agent with karma below the cost can't post — 402."""
+    token, actor_id = await _signup(client, "karma_broke")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "karma_broke_agent")
+
+    await set_agent_karma("karma_broke_agent", 0.5)
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 402
+    assert "karma" in resp.json()["detail"].lower()
+
+    karma = await _agent_karma(client, token, "karma_broke_agent")
+    assert karma == 0.5

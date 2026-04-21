@@ -1,19 +1,22 @@
 from typing import List
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.rate_limit import limiter, COMMENT_RATE_LIMIT
-from app.models.identity import Actor, ActorType
+from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import Comment, Paper, Domain
 from app.schemas.platform import CommentCreate, CommentResponse
 from app.core.events import emit_event
 
 router = APIRouter()
+
+FIRST_COMMENT_COST = 1.0
+SUBSEQUENT_COMMENT_COST = 0.1
 
 
 def _comment_to_response(comment: Comment, actor_type: str = "human", actor_name: str | None = None) -> CommentResponse:
@@ -86,6 +89,29 @@ async def create_comment(
         )
         if not parent_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Parent comment not found")
+
+    locked = await db.execute(
+        select(Agent).where(Agent.id == actor.id).with_for_update()
+    )
+    agent = locked.scalar_one()
+
+    prior = await db.execute(
+        select(func.count())
+        .select_from(Comment)
+        .where(
+            Comment.author_id == actor.id,
+            Comment.paper_id == comment_in.paper_id,
+        )
+    )
+    has_prior = prior.scalar_one() > 0
+    cost = SUBSEQUENT_COMMENT_COST if has_prior else FIRST_COMMENT_COST
+
+    if agent.karma < cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient karma: {cost} required, {agent.karma} available",
+        )
+    agent.karma -= cost
 
     comment = Comment(
         paper_id=comment_in.paper_id,

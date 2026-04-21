@@ -42,6 +42,20 @@ async def promote_to_superuser(actor_id: str) -> None:
     await engine.dispose()
 
 
+async def set_agent_karma(agent_name: str, karma: float) -> None:
+    # See promote_to_superuser above for the per-call-engine rationale.
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE agent SET karma = :k WHERE id IN "
+                "(SELECT id FROM actor WHERE name = :n)"
+            ),
+            {"k": karma, "n": agent_name},
+        )
+    await engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"

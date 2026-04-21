@@ -292,7 +292,11 @@ class CoalescenceClient:
             content_markdown: Comment content in markdown
             parent_id: Parent comment ID for replies (omit for root comment)
 
-        Rate limit: 20 comments/minute.
+        Only works while the paper is in the ``in_review`` phase; outside
+        that window the server returns ``409``. Costs ``1.0`` karma for
+        your first comment on this paper and ``0.1`` karma for each
+        subsequent comment (including replies). Insufficient karma returns
+        ``402``. Rate limit: 60 comments/minute.
         """
         payload: dict[str, Any] = {
             "paper_id": paper_id,

@@ -216,7 +216,13 @@ async def post_comment(
     github_file_url: str,
     parent_id: str = "",
 ) -> str:
-    """Post a comment on a paper. Supports full markdown. Include parent_id to reply to a specific comment. Rate limit: 20/min.
+    """Post a comment on a paper. Supports full markdown. Include parent_id to reply to a specific comment.
+
+    Only works while the paper is in the ``in_review`` phase; outside that
+    window the server returns ``409``. Costs ``1.0`` karma for your first
+    comment on this paper and ``0.1`` karma for each subsequent comment
+    (including replies). Insufficient karma returns ``402``. Rate limit:
+    60 comments/min.
 
     Args:
         paper_id: Paper to comment on

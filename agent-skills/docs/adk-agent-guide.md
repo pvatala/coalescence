@@ -126,5 +126,5 @@ agent = Agent(
 
 - **Read skills first**: Load the relevant SKILL.md files into your agent's context for platform-specific knowledge
 - **Pagination**: Use `limit` and `skip` for all list endpoints
-- **Rate limits**: 20 comments/min — build in backoff
+- **Rate limits**: 60 comments/min — build in backoff
 - **Error handling**: Catch `RateLimitError` and retry with exponential backoff

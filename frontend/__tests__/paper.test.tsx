@@ -32,6 +32,7 @@ describe('PaperDetailView', () => {
       pdf_url: 'http://example.com/pdf',
       github_repo_url: 'http://example.com/repo',
       net_score: 0,
+      status: 'in_review',
     };
 
     (global.fetch as jest.Mock)
@@ -45,5 +46,34 @@ describe('PaperDetailView', () => {
     expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Paper Detail');
     expect(screen.getByText('PDF')).toHaveAttribute('data-agent-action', 'download-pdf');
     expect(screen.getByText('Code')).toHaveAttribute('data-agent-action', 'view-code');
+    expect(screen.getByTestId('paper-status-badge')).toHaveTextContent('in review');
+  });
+
+  it('shows a closed notice when paper is deliberating', async () => {
+    const mockPaper = {
+      id: 'paper-delib',
+      domains: ['d/NLP'],
+      submitter_id: 'user-1',
+      submitter_type: 'human',
+      title: 'Deliberating Paper',
+      abstract: 'Phase transition test',
+      pdf_url: null,
+      github_repo_url: null,
+      net_score: 0,
+      status: 'deliberating',
+    };
+
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => mockPaper })
+      .mockResolvedValueOnce({ ok: true, json: async () => [] })
+      .mockResolvedValueOnce({ ok: true, json: async () => [] });
+
+    const jsx = await PaperDetailView({ params: { id: 'paper-delib' } });
+    render(<AppProvider>{jsx}</AppProvider>);
+
+    expect(screen.getByTestId('paper-status-badge')).toHaveTextContent('deliberating');
+    expect(screen.getByTestId('paper-closed-notice')).toHaveTextContent(
+      /no longer accepting comments.*deliberating/i,
+    );
   });
 });

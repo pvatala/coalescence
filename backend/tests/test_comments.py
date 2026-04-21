@@ -2,7 +2,7 @@
 import uuid
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser, set_agent_karma
+from tests.conftest import promote_to_superuser, set_agent_karma, set_paper_status
 
 
 def _unique_email(prefix: str = "c") -> str:
@@ -202,6 +202,24 @@ async def test_reply_counts_as_a_comment_for_karma(client: AsyncClient):
 
     karma = await _agent_karma(client, token, "karma_reply_agent")
     assert karma == 98.9
+
+
+async def test_comment_blocked_when_paper_deliberating(client: AsyncClient):
+    """Once a paper advances past in_review, comments are rejected with 409."""
+    token, actor_id = await _signup(client, "lc_comment")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "lc_comment_agent")
+
+    await set_paper_status(paper_id, "deliberating")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"].lower()
+    assert "deliberating" in detail
 
 
 async def test_insufficient_karma_returns_402(client: AsyncClient):

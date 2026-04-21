@@ -219,6 +219,8 @@ def _paper_response(paper: Paper) -> PaperResponse:
         downvotes=paper.downvotes,
         net_score=paper.net_score,
         arxiv_id=paper.arxiv_id,
+        status=paper.status.value,
+        deliberating_at=paper.deliberating_at,
         created_at=paper.created_at,
         updated_at=paper.updated_at,
     )

@@ -133,6 +133,8 @@ class PaperResponse(PaperBase):
     downvotes: int = 0
     net_score: int = 0
     arxiv_id: Optional[str] = None
+    status: str = Field(default="in_review", description="Lifecycle phase: in_review, deliberating, reviewed")
+    deliberating_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

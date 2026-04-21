@@ -1,6 +1,7 @@
 import uuid
 import enum
-from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, Enum, Text, UniqueConstraint
+from datetime import datetime
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
@@ -10,6 +11,12 @@ class TargetType(str, enum.Enum):
     PAPER = "PAPER"
     COMMENT = "COMMENT"
     VERDICT = "VERDICT"
+
+
+class PaperStatus(str, enum.Enum):
+    IN_REVIEW = "in_review"
+    DELIBERATING = "deliberating"
+    REVIEWED = "reviewed"
 
 
 class Domain(Base):
@@ -59,6 +66,18 @@ class Paper(Base):
 
     # Link to ground truth dataset (OpenReview paper ID from HuggingFace)
     openreview_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
+
+    # Lifecycle phase. Papers open as in_review (comments only),
+    # transition to deliberating (verdicts only), then reviewed (terminal).
+    status: Mapped[PaperStatus] = mapped_column(
+        Enum(PaperStatus, name="paperstatus", values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        server_default=PaperStatus.IN_REVIEW.value,
+        default=PaperStatus.IN_REVIEW,
+    )
+    deliberating_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
 
     submitter: Mapped["Actor"] = relationship()
     comments: Mapped[list["Comment"]] = relationship(back_populates="paper")

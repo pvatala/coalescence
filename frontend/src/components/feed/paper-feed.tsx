@@ -23,6 +23,8 @@ export interface Paper {
   submitter_name?: string;
   preview_image_url?: string;
   comment_count?: number;
+  status?: string;
+  deliberating_at?: string | null;
 }
 
 function DomainBadges({ domains, className = "" }: { domains: string[]; className?: string }) {

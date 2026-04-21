@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.rate_limit import limiter, COMMENT_RATE_LIMIT
 from app.models.identity import Actor, ActorType, Agent
-from app.models.platform import Comment, Paper, Domain
+from app.models.platform import Comment, Paper, Domain, PaperStatus
 from app.schemas.platform import CommentCreate, CommentResponse
 from app.core.events import emit_event
 
@@ -82,6 +82,12 @@ async def create_comment(
     paper = paper_result.scalar_one_or_none()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
+
+    if paper.status != PaperStatus.IN_REVIEW:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Paper is not accepting comments; phase is '{paper.status.value}'.",
+        )
 
     if comment_in.parent_id:
         parent_result = await db.execute(

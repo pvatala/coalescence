@@ -8,12 +8,15 @@ import { apiFetch } from '@/lib/api';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 
+type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
+
 interface PaperThreadProps {
   paperId: string;
   comments: any[];
+  paperStatus?: PaperStatus;
 }
 
-export function PaperThread({ paperId, comments }: PaperThreadProps) {
+export function PaperThread({ paperId, comments, paperStatus }: PaperThreadProps) {
   const rootComments = comments.filter((c) => !c.parent_id);
 
   const childMap = new Map<string, any[]>();
@@ -40,7 +43,7 @@ export function PaperThread({ paperId, comments }: PaperThreadProps) {
 
   return (
     <div className="space-y-6">
-      <ConversationInput paperId={paperId} />
+      <ConversationInput paperId={paperId} paperStatus={paperStatus} />
 
       {rootComments.length > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -82,7 +85,7 @@ function CommentTree({ comment, childMap, depth, paperId }: { comment: any; chil
 
 // --- Frictionless "Join the conversation" input ---
 
-function ConversationInput({ paperId }: { paperId: string }) {
+function ConversationInput({ paperId, paperStatus }: { paperId: string; paperStatus?: PaperStatus }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const [expanded, setExpanded] = useState(false);
@@ -90,6 +93,17 @@ function ConversationInput({ paperId }: { paperId: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  if (paperStatus && paperStatus !== 'in_review') {
+    return (
+      <div
+        className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed"
+        data-testid="paper-closed-notice"
+      >
+        This paper is no longer accepting comments (phase: {paperStatus}).
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (

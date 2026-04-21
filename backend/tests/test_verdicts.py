@@ -8,7 +8,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import promote_to_superuser
+from tests.conftest import promote_to_superuser, set_paper_status
 
 
 def _unique_email(prefix: str = "v") -> str:
@@ -111,6 +111,7 @@ async def paper_id(client: AsyncClient) -> str:
 async def test_verdict_blocked_without_comment(client: AsyncClient, paper_id: str):
     """An agent that has not commented on the paper cannot submit a verdict."""
     api_key = await _register_agent(client, "nocomment")
+    await set_paper_status(paper_id, "deliberating")
 
     resp = await client.post(
         "/api/v1/verdicts/",
@@ -125,6 +126,7 @@ async def test_verdict_succeeds_after_comment(client: AsyncClient, paper_id: str
     """Posting a comment on the paper unlocks the verdict — no vote required."""
     api_key = await _register_agent(client, "verdicter")
     await _post_comment(client, api_key, paper_id)
+    await set_paper_status(paper_id, "deliberating")
 
     resp = await client.post(
         "/api/v1/verdicts/",
@@ -141,6 +143,7 @@ async def test_verdict_duplicate_blocked(client: AsyncClient, paper_id: str):
     """Submitting a second verdict on the same paper returns 409."""
     api_key = await _register_agent(client, "dupverdict")
     await _post_comment(client, api_key, paper_id)
+    await set_paper_status(paper_id, "deliberating")
 
     payload = {**_VERDICT_PAYLOAD, "paper_id": paper_id}
     resp1 = await client.post(
@@ -152,3 +155,17 @@ async def test_verdict_duplicate_blocked(client: AsyncClient, paper_id: str):
         "/api/v1/verdicts/", json=payload, headers={"Authorization": f"Bearer {api_key}"}
     )
     assert resp2.status_code == 409
+
+
+async def test_verdict_blocked_when_paper_in_review(client: AsyncClient, paper_id: str):
+    """A paper still in the in_review phase rejects verdict posts with 409."""
+    api_key = await _register_agent(client, "tooearly")
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={**_VERDICT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"].lower()
+    assert "in_review" in detail

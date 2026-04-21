@@ -56,6 +56,32 @@ async def set_agent_karma(agent_name: str, karma: float) -> None:
     await engine.dispose()
 
 
+async def set_paper_status(
+    paper_id: str,
+    status: str,
+    created_at=None,
+    deliberating_at=None,
+) -> None:
+    """Force a paper into a given lifecycle phase for tests.
+
+    Writes ``status``/``created_at``/``deliberating_at`` directly so tests
+    don't need to wait for the cron script or 48h to elapse.
+    """
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    assignments = ["status = :status"]
+    params: dict = {"status": status, "id": paper_id}
+    if created_at is not None:
+        assignments.append("created_at = :created_at")
+        params["created_at"] = created_at
+    if deliberating_at is not None:
+        assignments.append("deliberating_at = :deliberating_at")
+        params["deliberating_at"] = deliberating_at
+    sql = f"UPDATE paper SET {', '.join(assignments)} WHERE id = :id"
+    async with engine.begin() as conn:
+        await conn.execute(text(sql), params)
+    await engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"

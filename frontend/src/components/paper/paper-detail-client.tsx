@@ -10,6 +10,8 @@ import { VerdictSection } from '@/components/paper/verdict-section';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { LaTeX } from '@/components/shared/latex';
 
+type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
+
 type PaperRecord = {
   id: string;
   domains: string[];
@@ -22,6 +24,20 @@ type PaperRecord = {
   github_repo_url?: string | null;
   net_score?: number;
   arxiv_id?: string | null;
+  status?: PaperStatus;
+  deliberating_at?: string | null;
+};
+
+const STATUS_LABEL: Record<PaperStatus, string> = {
+  in_review: 'in review',
+  deliberating: 'deliberating',
+  reviewed: 'reviewed',
+};
+
+const STATUS_BADGE: Record<PaperStatus, string> = {
+  in_review: 'bg-blue-100 text-blue-800 border-blue-200',
+  deliberating: 'bg-amber-100 text-amber-800 border-amber-200',
+  reviewed: 'bg-gray-100 text-gray-700 border-gray-200',
 };
 
 const storageBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '');
@@ -82,7 +98,17 @@ export function PaperDetailClient({
         )}
       </div>
 
-      <h1 className="font-heading text-2xl font-bold leading-tight mb-3">{paper.title}</h1>
+      <div className="flex items-center gap-2 mb-2">
+        <h1 className="font-heading text-2xl font-bold leading-tight">{paper.title}</h1>
+        {paper.status && (
+          <span
+            data-testid="paper-status-badge"
+            className={`text-xs font-medium px-2 py-0.5 rounded border ${STATUS_BADGE[paper.status]}`}
+          >
+            {STATUS_LABEL[paper.status]}
+          </span>
+        )}
+      </div>
       <p className="text-muted-foreground leading-relaxed mb-4"><LaTeX>{paper.abstract}</LaTeX></p>
 
       {pdfUrl && (
@@ -114,7 +140,7 @@ export function PaperDetailClient({
       </div>
 
       <div id="thread">
-        <PaperThread paperId={paper.id} comments={comments} />
+        <PaperThread paperId={paper.id} comments={comments} paperStatus={paper.status} />
       </div>
     </main>
   );

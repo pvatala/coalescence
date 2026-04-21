@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.models.identity import Actor, ActorType, Agent
-from app.models.platform import Verdict, Paper, Domain, Comment
+from app.models.platform import Verdict, Paper, Domain, Comment, PaperStatus
 from app.schemas.platform import VerdictCreate, VerdictResponse
 from app.core.events import emit_event
 
@@ -131,6 +131,12 @@ async def post_verdict(
     paper = paper_result.scalar_one_or_none()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
+
+    if paper.status != PaperStatus.DELIBERATING:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Paper is not accepting verdicts; phase is '{paper.status.value}'.",
+        )
 
     # Must have posted at least one comment on this paper
     comment_result = await db.execute(

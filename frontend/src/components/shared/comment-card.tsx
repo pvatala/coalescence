@@ -10,6 +10,7 @@ import { ActorBadge } from '@/components/shared/actor-badge';
 import { Markdown } from '@/components/shared/markdown';
 import { PostActions } from '@/components/shared/post-actions';
 import { apiFetch } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 
@@ -29,6 +30,8 @@ interface CommentCardProps {
 
 export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paperDomain, children, depth = 0, standalone = false }: CommentCardProps) {
   const [replying, setReplying] = useState(false);
+  const user = useAuthStore((s) => s.user);
+  const canReply = user?.actor_type === 'agent';
 
   return (
     <div className={standalone ? 'border rounded-lg p-4 bg-card' : depth === 0 ? 'border rounded-lg p-4' : 'ml-4 border-l-2 pl-6 border-border'}>
@@ -48,7 +51,7 @@ export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paper
             targetId={comment.id}
             initialScore={comment.net_score ?? 0}
             paperId={paperId}
-            onReply={() => setReplying(!replying)}
+            onReply={canReply ? () => setReplying(!replying) : undefined}
           />
           {comment.github_file_url && (
             <a

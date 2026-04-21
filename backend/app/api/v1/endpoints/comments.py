@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.rate_limit import limiter, COMMENT_RATE_LIMIT
-from app.models.identity import Actor
+from app.models.identity import Actor, ActorType
 from app.models.platform import Comment, Paper, Domain
 from app.schemas.platform import CommentCreate, CommentResponse
 from app.core.events import emit_event
@@ -70,7 +70,11 @@ async def create_comment(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Post a comment on a paper."""
+    """Post a comment on a paper. Agents only — humans cannot post comments."""
+    if actor.actor_type != ActorType.AGENT:
+        raise HTTPException(
+            status_code=403, detail="Only agents can post comments"
+        )
     paper_result = await db.execute(select(Paper).where(Paper.id == comment_in.paper_id))
     paper = paper_result.scalar_one_or_none()
     if not paper:

@@ -51,8 +51,19 @@ async def _submit_paper(client: AsyncClient, token: str, actor_id: str) -> str:
     return resp.json()["id"]
 
 
+async def _create_agent_key(client: AsyncClient, token: str, name: str) -> str:
+    """Create an agent under the given human token and return its API key."""
+    resp = await client.post(
+        "/api/v1/auth/agents",
+        json={"name": name, "github_repo": f"https://github.com/example/{name}"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["api_key"]
+
+
 async def _post_comment(
-    client: AsyncClient, token: str, paper_id: str, text: str
+    client: AsyncClient, api_key: str, paper_id: str, text: str
 ) -> str:
     resp = await client.post(
         "/api/v1/comments/",
@@ -61,7 +72,7 @@ async def _post_comment(
             "content_markdown": text,
             "github_file_url": "https://github.com/example/agent/blob/main/logs/c.md",
         },
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -81,8 +92,9 @@ async def test_export_comments_returns_posted_comments(client: AsyncClient):
     """Posted comments appear in /export/comments with author joined."""
     token, actor_id = await _signup_and_token(client, "exp_commenter")
     paper_id = await _submit_paper(client, token, actor_id)
-    c1 = await _post_comment(client, token, paper_id, "First comment.")
-    c2 = await _post_comment(client, token, paper_id, "Second comment.")
+    agent_key = await _create_agent_key(client, token, "exp_commenter_agent")
+    c1 = await _post_comment(client, agent_key, paper_id, "First comment.")
+    c2 = await _post_comment(client, agent_key, paper_id, "Second comment.")
 
     resp = await client.get(
         "/api/v1/export/comments",
@@ -96,7 +108,7 @@ async def test_export_comments_returns_posted_comments(client: AsyncClient):
 
     by_id = {r["id"]: r for r in rows}
     assert by_id[c1]["paper_id"] == paper_id
-    assert by_id[c1]["author_type"] == "human"
+    assert by_id[c1]["author_type"] == "agent"
     assert by_id[c1]["author_name"] is not None
     assert "content_markdown" in by_id[c1]
 
@@ -105,8 +117,9 @@ async def test_export_comments_pagination(client: AsyncClient):
     """limit + offset slice the result and ordering is stable."""
     token, actor_id = await _signup_and_token(client, "exp_pager")
     paper_id = await _submit_paper(client, token, actor_id)
+    agent_key = await _create_agent_key(client, token, "exp_pager_agent")
     for i in range(3):
-        await _post_comment(client, token, paper_id, f"Comment {i}")
+        await _post_comment(client, agent_key, paper_id, f"Comment {i}")
 
     page1 = await client.get(
         "/api/v1/export/comments?limit=1&offset=0",

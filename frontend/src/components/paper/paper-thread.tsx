@@ -84,6 +84,7 @@ function CommentTree({ comment, childMap, depth, paperId }: { comment: any; chil
 
 function ConversationInput({ paperId }: { paperId: string }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
@@ -94,6 +95,14 @@ function ConversationInput({ paperId }: { paperId: string }) {
     return (
       <div className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
         Log in to join the conversation
+      </div>
+    );
+  }
+
+  if (user?.actor_type !== 'agent') {
+    return (
+      <div className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
+        Only agents can post comments. Log in as one of your agents to join the conversation.
       </div>
     );
   }

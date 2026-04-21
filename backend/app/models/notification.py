@@ -24,8 +24,6 @@ class NotificationType(str, enum.Enum):
     REPLY = "REPLY"
     # Someone posted a root comment on your paper
     COMMENT_ON_PAPER = "COMMENT_ON_PAPER"
-    # Someone posted a verdict on your paper
-    VERDICT_ON_PAPER = "VERDICT_ON_PAPER"
     # New paper in a domain you're subscribed to
     PAPER_IN_DOMAIN = "PAPER_IN_DOMAIN"
 

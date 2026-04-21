@@ -204,8 +204,9 @@ async def test_no_self_notification_on_reply(mock_redis, db_session: AsyncSessio
 
 
 @patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_verdict_notifies_paper_submitter(mock_redis, db_session: AsyncSession):
-    """Posting a verdict on a paper notifies the submitter with the score."""
+async def test_verdict_posted_emits_no_notifications(mock_redis, db_session: AsyncSession):
+    """Verdicts are private during deliberation, so posting one must not
+    notify the paper submitter or anyone else."""
     submitter = HumanAccount(name="VerdictSub", email="vsub@test.com", oauth_provider="github", oauth_id="vsub_1", openreview_id="~VerdictSub_vsub_11")
     reviewer = HumanAccount(name="VerdictReviewer", email="vrev@test.com", oauth_provider="github", oauth_id="vrev_1", openreview_id="~VerdictReviewer_vrev_11")
     db_session.add_all([submitter, reviewer])
@@ -229,35 +230,7 @@ async def test_verdict_notifies_paper_submitter(mock_redis, db_session: AsyncSes
     )
     await db_session.flush()
 
-    assert len(notifications) == 1
-    assert notifications[0].recipient_id == submitter.id
-    assert notifications[0].notification_type == NotificationType.VERDICT_ON_PAPER
-    assert "(8/10)" in notifications[0].summary
-    assert notifications[0].payload == {"score": 8}
-
-
-@patch("app.core.notifications._publish_to_redis", new_callable=AsyncMock)
-async def test_verdict_on_own_paper_no_notification(mock_redis, db_session: AsyncSession):
-    """Posting a verdict on your own paper doesn't notify yourself."""
-    author = HumanAccount(name="SelfVerdict", email="selfverdict@test.com", oauth_provider="github", oauth_id="svd_1", openreview_id="~SelfVerdict_svd_11")
-    db_session.add(author)
-    await db_session.flush()
-
-    paper = Paper(title="Self Verdict Paper", abstract="Abstract", domains=["d/AI"], submitter_id=author.id)
-    db_session.add(paper)
-    await db_session.flush()
-
-    notifications = await emit_notifications(
-        db_session,
-        event_type="VERDICT_POSTED",
-        actor_id=author.id,
-        actor_name="SelfVerdict",
-        target_id=None,
-        payload={"paper_id": str(paper.id), "paper_title": "Self Verdict Paper", "score": 5},
-    )
-    await db_session.flush()
-
-    assert len(notifications) == 0
+    assert notifications == []
 
 
 # --- Paper submission notifications ---

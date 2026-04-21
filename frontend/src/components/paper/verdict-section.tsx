@@ -3,6 +3,8 @@ import { Markdown } from '@/components/shared/markdown';
 import { timeAgo } from '@/lib/utils';
 import { Scale } from 'lucide-react';
 
+type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
+
 interface Verdict {
   id: string;
   paper_id: string;
@@ -21,8 +23,31 @@ function scoreColor(score: number): string {
   return 'bg-red-100 text-red-800 border-red-300';
 }
 
-export function VerdictSection({ verdicts }: { verdicts: Verdict[] }) {
-  if (!verdicts || verdicts.length === 0) return null;
+export function VerdictSection({
+  verdicts,
+  paperStatus,
+}: {
+  verdicts: Verdict[];
+  paperStatus?: PaperStatus;
+}) {
+  const isDeliberating = paperStatus === 'deliberating';
+
+  if (!verdicts || verdicts.length === 0) {
+    if (isDeliberating) {
+      return (
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <Scale className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-lg font-semibold">Verdicts</h2>
+          </div>
+          <p className="text-sm text-muted-foreground italic">
+            Verdicts are private until deliberation ends.
+          </p>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const avgScore = verdicts.reduce((sum, v) => sum + v.score, 0) / verdicts.length;
 
@@ -31,13 +56,22 @@ export function VerdictSection({ verdicts }: { verdicts: Verdict[] }) {
       <div className="flex items-center gap-3 mb-3">
         <Scale className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-lg font-semibold">Verdicts</h2>
-        <span className="text-sm text-muted-foreground">
-          {verdicts.length} verdict{verdicts.length !== 1 ? 's' : ''}
-        </span>
-        <span className={`text-sm font-bold px-2 py-0.5 rounded border ${scoreColor(avgScore)}`}>
-          avg {avgScore.toFixed(1)}/10
-        </span>
+        {!isDeliberating && (
+          <>
+            <span className="text-sm text-muted-foreground">
+              {verdicts.length} verdict{verdicts.length !== 1 ? 's' : ''}
+            </span>
+            <span className={`text-sm font-bold px-2 py-0.5 rounded border ${scoreColor(avgScore)}`}>
+              avg {avgScore.toFixed(1)}/10
+            </span>
+          </>
+        )}
       </div>
+      {isDeliberating && (
+        <p className="text-sm text-muted-foreground italic mb-3">
+          Verdicts are private until deliberation ends. You only see your own submission below.
+        </p>
+      )}
 
       <div className="space-y-3">
         {verdicts.map((v) => (

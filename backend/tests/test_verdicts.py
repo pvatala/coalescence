@@ -349,3 +349,118 @@ async def test_verdict_succeeds_with_5_eligible_citations(
     data = resp.json()
     assert len(data["cited_comment_ids"]) == 5
     assert set(data["cited_comment_ids"]) == set(citations)
+
+
+async def _post_verdict(
+    client: AsyncClient, api_key: str, paper_id: str
+) -> str:
+    """Register citations, submit a verdict, return the verdict id.
+
+    The caller is expected to have already posted their own comment on
+    ``paper_id`` so the verdict prerequisite is satisfied.
+    """
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json=_verdict_payload(paper_id, citations),
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+async def test_deliberating_verdict_hidden_from_others(
+    client: AsyncClient, paper_id: str
+):
+    """During `deliberating`, only the verdict author can see their verdict."""
+    author = await _register_agent(client, "privauthor")
+    other = await _register_agent(client, "privother")
+
+    await _post_comment(client, author["api_key"], paper_id)
+    verdict_id = await _post_verdict(client, author["api_key"], paper_id)
+
+    # Unauthenticated caller
+    anon_resp = await client.get(f"/api/v1/verdicts/paper/{paper_id}")
+    assert anon_resp.status_code == 200, anon_resp.text
+    assert anon_resp.json() == []
+
+    # Another agent
+    other_resp = await client.get(
+        f"/api/v1/verdicts/paper/{paper_id}",
+        headers={"Authorization": f"Bearer {other['api_key']}"},
+    )
+    assert other_resp.status_code == 200, other_resp.text
+    assert other_resp.json() == []
+
+    # Bulk endpoint also filters
+    bulk_other = await client.get(
+        "/api/v1/verdicts/",
+        headers={"Authorization": f"Bearer {other['api_key']}"},
+    )
+    assert bulk_other.status_code == 200
+    assert all(v["id"] != verdict_id for v in bulk_other.json())
+
+    bulk_anon = await client.get("/api/v1/verdicts/")
+    assert bulk_anon.status_code == 200
+    assert all(v["id"] != verdict_id for v in bulk_anon.json())
+
+
+async def test_deliberating_verdict_visible_to_author(
+    client: AsyncClient, paper_id: str
+):
+    """The verdict author can always see their own verdict, even in deliberating."""
+    author = await _register_agent(client, "selfsee")
+    await _post_comment(client, author["api_key"], paper_id)
+    verdict_id = await _post_verdict(client, author["api_key"], paper_id)
+
+    resp = await client.get(
+        f"/api/v1/verdicts/paper/{paper_id}",
+        headers={"Authorization": f"Bearer {author['api_key']}"},
+    )
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()
+    assert len(rows) == 1
+    assert rows[0]["id"] == verdict_id
+
+    bulk = await client.get(
+        "/api/v1/verdicts/",
+        headers={"Authorization": f"Bearer {author['api_key']}"},
+    )
+    assert bulk.status_code == 200
+    assert any(v["id"] == verdict_id for v in bulk.json())
+
+
+async def test_reviewed_verdict_visible_to_all(
+    client: AsyncClient, paper_id: str
+):
+    """Once the paper is `reviewed`, everyone sees the verdict."""
+    author = await _register_agent(client, "openauthor")
+    other = await _register_agent(client, "openother")
+
+    await _post_comment(client, author["api_key"], paper_id)
+    verdict_id = await _post_verdict(client, author["api_key"], paper_id)
+
+    await set_paper_status(paper_id, "reviewed")
+
+    anon = await client.get(f"/api/v1/verdicts/paper/{paper_id}")
+    assert anon.status_code == 200
+    assert any(v["id"] == verdict_id for v in anon.json())
+
+    other_resp = await client.get(
+        f"/api/v1/verdicts/paper/{paper_id}",
+        headers={"Authorization": f"Bearer {other['api_key']}"},
+    )
+    assert other_resp.status_code == 200
+    assert any(v["id"] == verdict_id for v in other_resp.json())
+
+    author_resp = await client.get(
+        f"/api/v1/verdicts/paper/{paper_id}",
+        headers={"Authorization": f"Bearer {author['api_key']}"},
+    )
+    assert author_resp.status_code == 200
+    assert any(v["id"] == verdict_id for v in author_resp.json())
+
+    bulk_anon = await client.get("/api/v1/verdicts/")
+    assert bulk_anon.status_code == 200
+    assert any(v["id"] == verdict_id for v in bulk_anon.json())

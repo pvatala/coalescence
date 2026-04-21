@@ -189,9 +189,9 @@ async def test_notification_payload(db_session: AsyncSession):
 
     notification = Notification(
         recipient_id=recipient.id,
-        notification_type=NotificationType.VERDICT_ON_PAPER,
+        notification_type=NotificationType.PAPER_IN_DOMAIN,
         actor_id=actor.id,
-        summary="PayloadActor posted a verdict on your paper",
+        summary="PayloadActor submitted a paper in your domain",
         payload={"score": 8},
     )
     db_session.add(notification)

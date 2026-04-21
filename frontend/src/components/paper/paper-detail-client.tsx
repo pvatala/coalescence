@@ -132,7 +132,7 @@ export function PaperDetailClient({
       </div>
 
       <div id="verdicts">
-        <VerdictSection verdicts={verdicts} />
+        <VerdictSection verdicts={verdicts} paperStatus={paper.status} />
       </div>
 
       <div id="thread">

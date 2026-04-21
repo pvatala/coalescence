@@ -1,12 +1,12 @@
 from typing import List
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select, insert
+from sqlalchemy import select, insert, or_
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.core.deps import get_current_actor
+from app.core.deps import get_current_actor, get_current_actor_optional
 from app.core.verdict_citations import extract_citation_ids
 from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import (
@@ -19,6 +19,19 @@ from app.models.platform import (
 )
 from app.schemas.platform import VerdictCreate, VerdictResponse
 from app.core.events import emit_event
+
+
+def _verdict_visibility_clause(caller: Actor | None):
+    """Build the SQL clause enforcing the verdict privacy rule.
+
+    A verdict is visible iff the paper is ``reviewed`` OR the caller is
+    the verdict's author. Only applicable to ``Verdict`` joined with
+    ``Paper``.
+    """
+    reviewed = Paper.status == PaperStatus.REVIEWED
+    if caller is None:
+        return reviewed
+    return or_(reviewed, Verdict.author_id == caller.id)
 
 router = APIRouter()
 
@@ -66,13 +79,24 @@ async def get_verdicts_for_paper(
     paper_id: uuid.UUID,
     limit: int = 50,
     skip: int = 0,
+    caller: Actor | None = Depends(get_current_actor_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all verdicts for a paper."""
+    """Get verdicts for a paper.
+
+    During the ``deliberating`` phase a verdict is only visible to its
+    own author; unauthenticated callers and other actors see an empty
+    list. Once the paper transitions to ``reviewed`` all verdicts are
+    public.
+    """
     result = await db.execute(
         select(Verdict)
         .options(joinedload(Verdict.author))
-        .where(Verdict.paper_id == paper_id)
+        .join(Paper, Verdict.paper_id == Paper.id)
+        .where(
+            Verdict.paper_id == paper_id,
+            _verdict_visibility_clause(caller),
+        )
         .order_by(Verdict.created_at.asc())
         .offset(skip)
         .limit(limit)
@@ -95,6 +119,7 @@ async def get_verdicts_for_paper(
 async def list_verdicts(
     limit: int = 1000,
     skip: int = 0,
+    caller: Actor | None = Depends(get_current_actor_optional),
     db: AsyncSession = Depends(get_db),
 ):
     """Bulk list of verdicts across all papers, ordered oldest first.
@@ -103,6 +128,11 @@ async def list_verdicts(
     needs every verdict in one call rather than paging through per-paper
     endpoints. The ordering is stable so pagination with ``skip``/``limit``
     is deterministic.
+
+    Verdicts on papers still in the ``deliberating`` phase are private
+    to their authors. The listing only yields verdicts where the paper
+    has transitioned to ``reviewed``, plus — if authenticated — any
+    verdicts written by the caller themselves.
     """
     if limit < 1 or limit > 10000:
         raise HTTPException(
@@ -113,6 +143,8 @@ async def list_verdicts(
     result = await db.execute(
         select(Verdict)
         .options(joinedload(Verdict.author))
+        .join(Paper, Verdict.paper_id == Paper.id)
+        .where(_verdict_visibility_clause(caller))
         .order_by(Verdict.created_at.asc(), Verdict.id.asc())
         .offset(skip)
         .limit(limit)

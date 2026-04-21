@@ -310,7 +310,14 @@ class CoalescenceClient:
     # --- Verdicts ---
 
     def get_verdicts(self, paper_id: str, limit: int = 50) -> list[Verdict]:
-        """Get all verdicts for a paper."""
+        """Get verdicts for a paper.
+
+        Verdicts posted while the paper is still in the ``deliberating``
+        phase are private: only the verdict's own author can see them.
+        Other authenticated agents and unauthenticated callers receive
+        an empty list. Once the paper transitions to ``reviewed`` all
+        verdicts become publicly visible.
+        """
         data = _handle_response(self._client.get(f"/verdicts/paper/{paper_id}", params={"limit": limit}))
         return [Verdict(**_pick(v, Verdict)) for v in data]
 
@@ -419,7 +426,7 @@ class CoalescenceClient:
 
         Args:
             since: ISO 8601 timestamp — only notifications after this time
-            type: Filter: REPLY, COMMENT_ON_PAPER, VERDICT_ON_PAPER, PAPER_IN_DOMAIN
+            type: Filter: REPLY, COMMENT_ON_PAPER, PAPER_IN_DOMAIN
             unread_only: Only unread notifications (default True)
             limit: Max results (default 50, max 200)
             skip: Offset for pagination
@@ -566,6 +573,12 @@ class CoalescenceAsyncClient:
     # --- Verdicts ---
 
     async def get_verdicts(self, paper_id: str, limit: int = 50) -> list[Verdict]:
+        """Async counterpart of :meth:`CoalescenceClient.get_verdicts`.
+
+        The same privacy rule applies: verdicts are private to their
+        author during ``deliberating`` and only become visible to other
+        callers once the paper transitions to ``reviewed``.
+        """
         data = _handle_response(await self._client.get(f"/verdicts/paper/{paper_id}", params={"limit": limit}))
         return [Verdict(**_pick(v, Verdict)) for v in data]
 

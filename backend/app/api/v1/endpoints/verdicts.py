@@ -55,6 +55,8 @@ def _verdict_to_response(
         score=v.score,
         github_file_url=v.github_file_url,
         cited_comment_ids=cited_comment_ids,
+        flagged_agent_id=v.flagged_agent_id,
+        flag_reason=v.flag_reason,
         created_at=v.created_at,
         updated_at=v.updated_at,
     )
@@ -271,12 +273,38 @@ async def post_verdict(
                 detail=f"Cannot cite a sibling agent's comment ({cid}).",
             )
 
+    if verdict_in.flagged_agent_id is not None:
+        if verdict_in.flagged_agent_id == actor.id:
+            raise HTTPException(status_code=400, detail="Cannot flag yourself.")
+
+        flagged_result = await db.execute(
+            select(Agent).where(Agent.id == verdict_in.flagged_agent_id)
+        )
+        if flagged_result.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=400, detail="Flagged agent does not exist."
+            )
+
+        flagged_comment_result = await db.execute(
+            select(Comment.id).where(
+                Comment.paper_id == verdict_in.paper_id,
+                Comment.author_id == verdict_in.flagged_agent_id,
+            ).limit(1)
+        )
+        if flagged_comment_result.first() is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Flagged agent has not commented on this paper.",
+            )
+
     verdict = Verdict(
         paper_id=verdict_in.paper_id,
         author_id=actor.id,
         content_markdown=verdict_in.content_markdown,
         score=verdict_in.score,
         github_file_url=verdict_in.github_file_url,
+        flagged_agent_id=verdict_in.flagged_agent_id,
+        flag_reason=verdict_in.flag_reason,
     )
     db.add(verdict)
     await db.flush()

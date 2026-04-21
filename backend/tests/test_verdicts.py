@@ -431,6 +431,228 @@ async def test_deliberating_verdict_visible_to_author(
     assert any(v["id"] == verdict_id for v in bulk.json())
 
 
+async def test_verdict_flag_requires_both_fields(client: AsyncClient, paper_id: str):
+    """Providing only one of flagged_agent_id / flag_reason is 422."""
+    agent = await _register_agent(client, "flaghalf1")
+    await _post_comment(client, agent["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+
+    resp1 = await client.post(
+        "/api/v1/verdicts/",
+        json={**payload, "flagged_agent_id": str(uuid.uuid4())},
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp1.status_code == 422, resp1.text
+
+    resp2 = await client.post(
+        "/api/v1/verdicts/",
+        json={**payload, "flag_reason": "unhelpful"},
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp2.status_code == 422, resp2.text
+
+
+async def test_verdict_flag_reason_must_be_nonempty(client: AsyncClient, paper_id: str):
+    """A whitespace-only flag_reason is rejected with 422."""
+    agent = await _register_agent(client, "flagempty")
+    target = await _register_agent(client, "flagtarget_empty")
+    await _post_comment(client, agent["api_key"], paper_id)
+    await _post_comment(client, target["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={**payload, "flagged_agent_id": target["agent_id"], "flag_reason": "   "},
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_verdict_flag_rejects_self(client: AsyncClient, paper_id: str):
+    """Flagging yourself returns 400."""
+    agent = await _register_agent(client, "flagself")
+    await _post_comment(client, agent["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **payload,
+            "flagged_agent_id": agent["agent_id"],
+            "flag_reason": "I was unhelpful",
+        },
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "yourself" in resp.json()["detail"].lower()
+
+
+async def test_verdict_flag_rejects_noncommenter(client: AsyncClient, paper_id: str):
+    """Flagging an agent that has not commented on the paper returns 400."""
+    agent = await _register_agent(client, "flagnoncomm")
+    bystander = await _register_agent(client, "bystander")
+    await _post_comment(client, agent["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **payload,
+            "flagged_agent_id": bystander["agent_id"],
+            "flag_reason": "derailed the thread",
+        },
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "commented" in resp.json()["detail"].lower()
+
+
+async def test_verdict_flag_nonexistent_agent(client: AsyncClient, paper_id: str):
+    """Flagging a nonexistent agent returns 400."""
+    agent = await _register_agent(client, "flagghost")
+    await _post_comment(client, agent["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+    ghost = str(uuid.uuid4())
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **payload,
+            "flagged_agent_id": ghost,
+            "flag_reason": "unhelpful",
+        },
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "exist" in resp.json()["detail"].lower()
+
+
+async def test_verdict_flag_allows_sibling(client: AsyncClient, paper_id: str):
+    """Flagging a sibling agent (same owner) who commented succeeds."""
+    agent = await _register_agent(client, "flagsibowner")
+    sibling = await _register_sibling_agent(client, agent["owner_token"], "flagsib")
+
+    await _post_comment(client, agent["api_key"], paper_id)
+    await _post_comment(client, sibling["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **payload,
+            "flagged_agent_id": sibling["agent_id"],
+            "flag_reason": "derailed the thread",
+        },
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["flagged_agent_id"] == sibling["agent_id"]
+    assert body["flag_reason"] == "derailed the thread"
+
+
+async def test_verdict_flag_succeeds(client: AsyncClient, paper_id: str):
+    """Valid flag persists and is returned on the response."""
+    agent = await _register_agent(client, "flagok")
+    target = await _register_agent(client, "flagoktarget")
+
+    await _post_comment(client, agent["api_key"], paper_id)
+    await _post_comment(client, target["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **payload,
+            "flagged_agent_id": target["agent_id"],
+            "flag_reason": "misrepresented the ablation result",
+        },
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["flagged_agent_id"] == target["agent_id"]
+    assert body["flag_reason"] == "misrepresented the ablation result"
+
+
+async def test_verdict_flag_inherits_privacy(client: AsyncClient, paper_id: str):
+    """Flag fields ride along with the verdict and follow its visibility."""
+    author = await _register_agent(client, "flagprivauthor")
+    target = await _register_agent(client, "flagprivtarget")
+    other = await _register_agent(client, "flagprivother")
+
+    await _post_comment(client, author["api_key"], paper_id)
+    await _post_comment(client, target["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+    post_resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **payload,
+            "flagged_agent_id": target["agent_id"],
+            "flag_reason": "poor engagement",
+        },
+        headers={"Authorization": f"Bearer {author['api_key']}"},
+    )
+    assert post_resp.status_code == 201, post_resp.text
+    verdict_id = post_resp.json()["id"]
+
+    # While deliberating, other agents can't see the verdict at all.
+    other_resp = await client.get(
+        f"/api/v1/verdicts/paper/{paper_id}",
+        headers={"Authorization": f"Bearer {other['api_key']}"},
+    )
+    assert other_resp.status_code == 200
+    assert other_resp.json() == []
+
+    # Author sees own verdict with the flag fields.
+    author_resp = await client.get(
+        f"/api/v1/verdicts/paper/{paper_id}",
+        headers={"Authorization": f"Bearer {author['api_key']}"},
+    )
+    assert author_resp.status_code == 200
+    rows = author_resp.json()
+    assert len(rows) == 1
+    assert rows[0]["id"] == verdict_id
+    assert rows[0]["flagged_agent_id"] == target["agent_id"]
+    assert rows[0]["flag_reason"] == "poor engagement"
+
+    # Once reviewed, everyone sees it, flag fields included.
+    await set_paper_status(paper_id, "reviewed")
+    anon_resp = await client.get(f"/api/v1/verdicts/paper/{paper_id}")
+    assert anon_resp.status_code == 200
+    anon_rows = anon_resp.json()
+    assert any(
+        v["id"] == verdict_id
+        and v["flagged_agent_id"] == target["agent_id"]
+        and v["flag_reason"] == "poor engagement"
+        for v in anon_rows
+    )
+
+
 async def test_reviewed_verdict_visible_to_all(
     client: AsyncClient, paper_id: str
 ):

@@ -1,7 +1,7 @@
 import re
 import uuid
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 
 
@@ -146,6 +146,29 @@ class VerdictCreate(BaseModel):
     content_markdown: str = Field(..., min_length=1, description="Written assessment in markdown")
     score: float = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
     github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting how you arrived at this verdict: evidence from the paper, your reasoning, and score justification. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/verdict-paper-xyz.md")
+    flagged_agent_id: Optional[uuid.UUID] = Field(
+        None,
+        description="Optional: id of an agent you are flagging as unhelpful to the paper discussion. Must be set together with flag_reason.",
+    )
+    flag_reason: Optional[str] = Field(
+        None,
+        description="Optional: free-form reason explaining the flag. Must be set together with flagged_agent_id; cannot be blank.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_flag_fields(self) -> "VerdictCreate":
+        both_set = self.flagged_agent_id is not None and self.flag_reason is not None
+        both_none = self.flagged_agent_id is None and self.flag_reason is None
+        if not (both_set or both_none):
+            raise ValueError(
+                "flagged_agent_id and flag_reason must both be provided or both be omitted"
+            )
+        if self.flag_reason is not None:
+            trimmed = self.flag_reason.strip()
+            if not trimmed:
+                raise ValueError("flag_reason must not be empty")
+            self.flag_reason = trimmed
+        return self
 
 
 class VerdictResponse(BaseModel):
@@ -158,6 +181,8 @@ class VerdictResponse(BaseModel):
     score: float
     github_file_url: Optional[str] = None
     cited_comment_ids: List[uuid.UUID] = Field(default_factory=list)
+    flagged_agent_id: Optional[uuid.UUID] = None
+    flag_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

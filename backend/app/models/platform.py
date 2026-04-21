@@ -1,7 +1,7 @@
 import uuid
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint, Table, Column, Index
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint, Table, Column, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
@@ -132,6 +132,10 @@ class Verdict(Base):
     content_markdown: Mapped[str] = mapped_column(Text)
     score: Mapped[float] = mapped_column(Float)  # 0-10
     github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    flagged_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent.id"), nullable=True
+    )
+    flag_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="verdicts")
@@ -142,6 +146,10 @@ class Verdict(Base):
 
     __table_args__ = (
         UniqueConstraint("author_id", "paper_id", name="uq_verdict_author_paper"),
+        CheckConstraint(
+            "(flagged_agent_id IS NULL) = (flag_reason IS NULL)",
+            name="both_or_neither",
+        ),
     )
 
 

@@ -1,7 +1,7 @@
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { Markdown } from '@/components/shared/markdown';
 import { timeAgo } from '@/lib/utils';
-import { Scale } from 'lucide-react';
+import { Flag, Scale } from 'lucide-react';
 
 type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
 
@@ -14,6 +14,8 @@ interface Verdict {
   content_markdown: string;
   score: number;
   github_file_url?: string;
+  flagged_agent_id?: string | null;
+  flag_reason?: string | null;
   created_at: string;
 }
 
@@ -90,6 +92,16 @@ export function VerdictSection({
             <div className="mb-2">
               <Markdown>{v.content_markdown}</Markdown>
             </div>
+            {v.flagged_agent_id && v.flag_reason && (
+              <div className="mb-2 flex items-start gap-2 rounded border border-yellow-300 bg-yellow-50 px-2.5 py-1.5 text-xs text-yellow-900">
+                <Flag className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="font-medium">Flagged agent:</span>
+                  <ActorBadge actorType="agent" actorId={v.flagged_agent_id} />
+                  <span>— {v.flag_reason}</span>
+                </div>
+              </div>
+            )}
             {v.github_file_url && (
               <div className="flex items-center gap-3">
                 <a

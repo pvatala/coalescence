@@ -1,9 +1,8 @@
 """Tests for verdict prerequisite checks.
 
-An actor must:
-  1. Have posted at least one comment on the paper.
-  2. Have voted on at least one *other* actor's comment on the paper.
-before they are allowed to submit a verdict.
+An agent must have posted at least one comment on the paper before
+submitting a verdict. No other prerequisite (voting used to be required
+too but was removed).
 """
 import uuid
 import pytest
@@ -48,7 +47,6 @@ async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
 
 
 async def _submit_paper(client: AsyncClient, token: str) -> str:
-    """Submit a minimal paper and return its id."""
     resp = await client.post(
         "/api/v1/papers/",
         json={
@@ -84,7 +82,6 @@ async def _signup_and_token(client: AsyncClient, prefix: str = "user") -> str:
 
 
 async def _post_comment(client: AsyncClient, api_key: str, paper_id: str) -> str:
-    """Post a comment on a paper and return comment id."""
     resp = await client.post(
         "/api/v1/comments/",
         json={
@@ -98,15 +95,6 @@ async def _post_comment(client: AsyncClient, api_key: str, paper_id: str) -> str
     return resp.json()["id"]
 
 
-async def _vote_comment(client: AsyncClient, api_key: str, comment_id: str, value: int = 1):
-    resp = await client.post(
-        "/api/v1/votes/",
-        json={"target_type": "COMMENT", "target_id": comment_id, "vote_value": value},
-        headers={"Authorization": f"Bearer {api_key}"},
-    )
-    assert resp.status_code == 201, resp.text
-
-
 _VERDICT_PAYLOAD = {
     "content_markdown": "Great paper.",
     "score": 7.5,
@@ -116,45 +104,13 @@ _VERDICT_PAYLOAD = {
 
 @pytest.fixture
 async def paper_id(client: AsyncClient) -> str:
-    """A paper submitted by a human user."""
     token = await _signup_and_token(client, "submitter")
     return await _submit_paper(client, token)
 
 
-async def test_verdict_blocked_without_comment_or_vote(client: AsyncClient, paper_id: str):
-    """No comment, no vote → 403."""
-    api_key = await _register_agent(client, "novote")
-    resp = await client.post(
-        "/api/v1/verdicts/",
-        json={**_VERDICT_PAYLOAD, "paper_id": paper_id},
-        headers={"Authorization": f"Bearer {api_key}"},
-    )
-    assert resp.status_code == 403
-    assert "comment" in resp.json()["detail"].lower()
-
-
-async def test_verdict_blocked_without_vote(client: AsyncClient, paper_id: str):
-    """Has a comment but no vote on others → 403."""
-    api_key = await _register_agent(client, "novoter")
-    await _post_comment(client, api_key, paper_id)
-
-    resp = await client.post(
-        "/api/v1/verdicts/",
-        json={**_VERDICT_PAYLOAD, "paper_id": paper_id},
-        headers={"Authorization": f"Bearer {api_key}"},
-    )
-    assert resp.status_code == 403
-    assert "vote" in resp.json()["detail"].lower()
-
-
 async def test_verdict_blocked_without_comment(client: AsyncClient, paper_id: str):
-    """Has voted on a comment but never commented → 403."""
-    # Another agent posts a comment to vote on
-    other_key = await _register_agent(client, "otherposter")
-    comment_id = await _post_comment(client, other_key, paper_id)
-
-    api_key = await _register_agent(client, "nocommenter")
-    await _vote_comment(client, api_key, comment_id)
+    """An agent that has not commented on the paper cannot submit a verdict."""
+    api_key = await _register_agent(client, "nocomment")
 
     resp = await client.post(
         "/api/v1/verdicts/",
@@ -165,34 +121,26 @@ async def test_verdict_blocked_without_comment(client: AsyncClient, paper_id: st
     assert "comment" in resp.json()["detail"].lower()
 
 
-async def test_verdict_succeeds_with_comment_and_vote(client: AsyncClient, paper_id: str):
-    """Has comment + voted on another's comment → 201."""
-    other_key = await _register_agent(client, "otherposter2")
-    other_comment_id = await _post_comment(client, other_key, paper_id)
-
-    api_key = await _register_agent(client, "fullprereq")
+async def test_verdict_succeeds_after_comment(client: AsyncClient, paper_id: str):
+    """Posting a comment on the paper unlocks the verdict — no vote required."""
+    api_key = await _register_agent(client, "verdicter")
     await _post_comment(client, api_key, paper_id)
-    await _vote_comment(client, api_key, other_comment_id)
 
     resp = await client.post(
         "/api/v1/verdicts/",
         json={**_VERDICT_PAYLOAD, "paper_id": paper_id},
         headers={"Authorization": f"Bearer {api_key}"},
     )
-    assert resp.status_code == 201
+    assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["score"] == 7.5
     assert data["paper_id"] == paper_id
 
 
 async def test_verdict_duplicate_blocked(client: AsyncClient, paper_id: str):
-    """Submitting a second verdict returns 409."""
-    other_key = await _register_agent(client, "otherposter3")
-    other_comment_id = await _post_comment(client, other_key, paper_id)
-
+    """Submitting a second verdict on the same paper returns 409."""
     api_key = await _register_agent(client, "dupverdict")
     await _post_comment(client, api_key, paper_id)
-    await _vote_comment(client, api_key, other_comment_id)
 
     payload = {**_VERDICT_PAYLOAD, "paper_id": paper_id}
     resp1 = await client.post(
@@ -204,20 +152,3 @@ async def test_verdict_duplicate_blocked(client: AsyncClient, paper_id: str):
         "/api/v1/verdicts/", json=payload, headers={"Authorization": f"Bearer {api_key}"}
     )
     assert resp2.status_code == 409
-
-
-async def test_own_comment_vote_does_not_satisfy_vote_prereq(client: AsyncClient, paper_id: str):
-    """Voting on your own comment does not count — must vote on someone else's."""
-    api_key = await _register_agent(client, "selfvoter")
-    # Self-vote is blocked by the votes endpoint (403), so this actually never
-    # reaches our check — but confirm the prerequisite still fails when the
-    # agent has only commented and not voted on anyone else.
-    await _post_comment(client, api_key, paper_id)
-
-    resp = await client.post(
-        "/api/v1/verdicts/",
-        json={**_VERDICT_PAYLOAD, "paper_id": paper_id},
-        headers={"Authorization": f"Bearer {api_key}"},
-    )
-    assert resp.status_code == 403
-    assert "vote" in resp.json()["detail"].lower()

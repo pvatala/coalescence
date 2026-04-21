@@ -12,7 +12,7 @@ from sqlalchemy import delete, update, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.identity import Actor, DelegatedAgent
+from app.models.identity import Actor, Agent
 from app.models.platform import (
     Paper, PaperRevision, Comment, Verdict, Vote,
     Domain, Subscription, DomainAuthority, InteractionEvent,
@@ -47,7 +47,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     """Current database row counts for all tables."""
     tables = {
         "actors": Actor,
-        "delegated_agents": DelegatedAgent,
+        "agents": Agent,
         "papers": Paper,
         "paper_revisions": PaperRevision,
         "comments": Comment,
@@ -92,7 +92,7 @@ async def get_verdict_stats(
         )
         .outerjoin(Verdict, Verdict.author_id == Actor.id)
         .where(
-            Actor.actor_type.in_([ActorType.DELEGATED_AGENT, ActorType.SOVEREIGN_AGENT]),
+            Actor.actor_type == ActorType.AGENT,
             Actor.is_active.is_(True),
         )
         .group_by(Actor.id)
@@ -222,7 +222,7 @@ RESET_ACTIONS = {
     # Agent Identity
     "agent_reputation": {
         "label": "Agent Reputation Scores",
-        "description": "Reset reputation_score to 0 on all delegated agents.",
+        "description": "Reset reputation_score to 0 on all agents.",
     },
 }
 
@@ -347,7 +347,7 @@ async def reset_data(
         results["ground_truth"] = r.rowcount
 
     if "agent_reputation" in actions:
-        r = await db.execute(update(DelegatedAgent).values(reputation_score=0))
+        r = await db.execute(update(Agent).values(reputation_score=0))
         results["agent_reputation"] = r.rowcount
 
     await db.commit()

@@ -3,7 +3,7 @@ Database seed script — populates the platform with realistic data for demo/tes
 
 Includes:
 - 5 human accounts (researchers)
-- 6 delegated agents
+- 6 agents
 - 20 real arXiv papers across 5 domains
 - ~40 analysis comments
 - ~60 comments (nested debate threads)
@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal, engine
 from app.db.base import Base
-from app.models.identity import ActorType, HumanAccount, DelegatedAgent, Actor
+from app.models.identity import ActorType, HumanAccount, Agent, Actor
 from app.models.platform import (
     Domain, Paper, Comment, Vote, TargetType,
     DomainAuthority, InteractionEvent, Subscription,
@@ -307,11 +307,11 @@ async def seed():
         await session.flush()
         print(f"Created {len(humans)} human accounts")
 
-        # ----- Delegated Agents -----
+        # ----- Agents -----
         agents = []
         for a in AGENTS:
             api_key = generate_api_key()
-            agent = DelegatedAgent(
+            agent = Agent(
                 name=a["name"],
                 owner_id=humans[a["owner_idx"]].id,
                 api_key_hash=hash_api_key(api_key),
@@ -322,7 +322,7 @@ async def seed():
             agent_api_keys[a["name"]] = api_key
 
         await session.flush()
-        print(f"Created {len(agents)} delegated agents")
+        print(f"Created {len(agents)} agents")
 
         # Collect all actors
         all_actors = humans + agents
@@ -574,7 +574,7 @@ async def seed():
     for h in HUMANS:
         print(f"  {h['name']:25s} → {h['email']}")
 
-    print(f"\nDelegated agent API keys:")
+    print(f"\nAgent API keys:")
     for name, key in agent_api_keys.items():
         print(f"  {name:25s} → {key}")
 

@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
-from app.models.identity import Actor, ActorType, HumanAccount, DelegatedAgent
+from app.models.identity import Actor, ActorType, HumanAccount, Agent
 from app.models.platform import Paper, Comment, Verdict, Vote, TargetType, DomainAuthority, Domain, Subscription
 from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResponse, DomainResponse, UserPaperResponse, UserCommentResponse
 
@@ -27,7 +27,6 @@ async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID) -> dict:
     votes_cast = (await db.execute(
         select(func.count()).select_from(Vote).where(Vote.voter_id == actor_id)
     )).scalar() or 0
-    # Votes received on this actor's comments + verdicts
     votes_on_comments = (await db.execute(
         select(func.count()).select_from(Vote)
         .where(Vote.target_type == TargetType.COMMENT)
@@ -82,9 +81,9 @@ class PublicProfileResponse(BaseModel):
     github_repo: Optional[str] = None
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
-    owner_id: Optional[uuid.UUID] = None  # For delegated agents
-    owner_name: Optional[str] = None  # For delegated agents
-    delegated_agents: Optional[list[dict]] = None  # For humans
+    owner_id: Optional[uuid.UUID] = None  # For agents
+    owner_name: Optional[str] = None  # For agents
+    agents: Optional[list[dict]] = None  # For humans
     stats: dict
 
 
@@ -102,30 +101,27 @@ async def get_current_user_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """Get the profile for the currently authenticated actor."""
-    delegated_agents = []
+    agents = []
 
     if actor.actor_type == ActorType.HUMAN:
         result = await db.execute(
-            select(DelegatedAgent).where(DelegatedAgent.owner_id == actor.id)
+            select(Agent).where(Agent.owner_id == actor.id)
         )
-        agents = result.scalars().all()
-        delegated_agents = []
-        for a in agents:
+        agent_rows = result.scalars().all()
+        agents = []
+        for a in agent_rows:
             stats = await _get_actor_stats(db, a.id)
-            delegated_agents.append({
+            agents.append({
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
-                "api_key_preview": a.api_key_plain or "cs_••••••••",
                 "reputation": 0,
                 "stats": stats,
             })
 
     auth_method = "Email"
-    if actor.actor_type == ActorType.DELEGATED_AGENT:
+    if actor.actor_type == ActorType.AGENT:
         auth_method = "API Key"
-    elif actor.actor_type == ActorType.SOVEREIGN_AGENT:
-        auth_method = "Sovereign"
 
     orcid_id = None
     google_scholar_id = None
@@ -142,7 +138,7 @@ async def get_current_user_profile(
         auth_method=auth_method,
         reputation_score=0,
         voting_weight=1.0,
-        delegated_agents=delegated_agents,
+        agents=agents,
         orcid_id=orcid_id,
         google_scholar_id=google_scholar_id,
     )
@@ -162,9 +158,9 @@ async def update_my_profile(
 
     if body.description is not None or body.github_repo is not None:
         # Description and github_repo only apply to agents
-        if actor.actor_type == ActorType.DELEGATED_AGENT:
+        if actor.actor_type == ActorType.AGENT:
             agent_result = await db.execute(
-                select(DelegatedAgent).where(DelegatedAgent.id == actor.id)
+                select(Agent).where(Agent.id == actor.id)
             )
             agent = agent_result.scalar_one()
             if body.description is not None:
@@ -175,7 +171,6 @@ async def update_my_profile(
     await db.commit()
     await db.refresh(actor)
 
-    # Re-use the GET /me response builder
     return await get_current_user_profile(actor, db)
 
 
@@ -197,13 +192,12 @@ async def get_public_profile(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Visibility: agent profiles hidden from other agents (not from humans or unauthenticated browsers)
-    if actor.actor_type == ActorType.DELEGATED_AGENT and requester is not None:
+    if actor.actor_type == ActorType.AGENT and requester is not None:
         is_self = requester.id == actor.id
         is_human = requester.actor_type == ActorType.HUMAN
         if not is_self and not is_human:
             raise HTTPException(status_code=403, detail="Agent profiles are only visible to their owner and humans")
 
-    # Stats
     paper_count_result = await db.execute(
         select(func.count()).select_from(Paper).where(Paper.submitter_id == user_id)
     )
@@ -214,7 +208,6 @@ async def get_public_profile(
     )
     comment_count = comment_count_result.scalar() or 0
 
-    # Top domain authorities
     da_result = await db.execute(
         select(DomainAuthority, Domain.name)
         .join(Domain, DomainAuthority.domain_id == Domain.id)
@@ -227,7 +220,6 @@ async def get_public_profile(
         for da, name in da_result
     ]
 
-    # ORCID / Scholar (humans only), description (agents only)
     orcid_id = None
     google_scholar_id = None
     owner_id = None
@@ -242,17 +234,16 @@ async def get_public_profile(
         if human:
             orcid_id = human.orcid_id
             google_scholar_id = human.google_scholar_id
-        # List delegated agents for this human
         agents_result = await db.execute(
-            select(DelegatedAgent).join(Actor, Actor.id == DelegatedAgent.id)
-            .where(DelegatedAgent.owner_id == user_id)
+            select(Agent).join(Actor, Actor.id == Agent.id)
+            .where(Agent.owner_id == user_id)
         )
-        agents = agents_result.scalars().all()
-        if agents:
-            agents_list = [{"id": str(a.id), "name": a.name} for a in agents]
-    elif actor.actor_type == ActorType.DELEGATED_AGENT:
+        agent_rows = agents_result.scalars().all()
+        if agent_rows:
+            agents_list = [{"id": str(a.id), "name": a.name} for a in agent_rows]
+    elif actor.actor_type == ActorType.AGENT:
         agent_result = await db.execute(
-            select(DelegatedAgent).options(joinedload(DelegatedAgent.owner)).where(DelegatedAgent.id == user_id)
+            select(Agent).options(joinedload(Agent.owner)).where(Agent.id == user_id)
         )
         agent = agent_result.scalar_one_or_none()
         if agent:
@@ -276,7 +267,7 @@ async def get_public_profile(
         google_scholar_id=google_scholar_id,
         owner_id=owner_id,
         owner_name=owner_name,
-        delegated_agents=agents_list,
+        agents=agents_list,
         stats={
             "papers": paper_count,
             "comments": actor_stats["comments"],
@@ -306,7 +297,6 @@ async def get_user_papers(
     )
     papers = result.scalars().all()
 
-    # No need to join submitter — frontend has the profile name already
     return [
         {
             "id": str(p.id),

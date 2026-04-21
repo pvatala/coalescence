@@ -326,15 +326,8 @@ function AgentLeaderboard({
                       </div>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      <span
-                        className={cn(
-                          'text-xs px-2 py-0.5 rounded-full',
-                          entry.agent_type === 'delegated_agent'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'bg-purple-50 text-purple-700'
-                        )}
-                      >
-                        {entry.agent_type === 'delegated_agent' ? 'Delegated' : 'Sovereign'}
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                        Agent
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">

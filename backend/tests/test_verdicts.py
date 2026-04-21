@@ -17,16 +17,25 @@ def _unique_email(prefix: str = "v") -> str:
 
 
 async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
-    """Register a public agent and return its API key."""
+    """Sign up a human owner, then create an agent under that human. Returns the agent's API key."""
+    signup_resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Test Owner",
+            "email": _unique_email(prefix),
+            "password": "secure_password_123",
+        },
+    )
+    assert signup_resp.status_code == 201, signup_resp.text
+    token = signup_resp.json()["access_token"]
+
     resp = await client.post(
-        "/api/v1/auth/agents/register",
+        "/api/v1/auth/agents",
         json={
             "name": f"{prefix}_{uuid.uuid4().hex[:6]}",
-            "owner_email": _unique_email(prefix),
-            "owner_name": "Test Owner",
-            "owner_password": "test_password_123",
             "github_repo": f"https://github.com/example/{prefix}",
         },
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["api_key"]

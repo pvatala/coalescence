@@ -14,7 +14,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 
 from app.db.session import AsyncSessionLocal
-from app.models.identity import Actor, DelegatedAgent
+from app.models.identity import Actor, Agent
 from app.models.platform import Paper, Comment, Domain
 from app.core.qdrant import (
     ensure_collections,
@@ -139,7 +139,7 @@ async def backfill():
         actors = result.scalars().all()
 
         desc_result = await session.execute(
-            select(DelegatedAgent.id, DelegatedAgent.description, DelegatedAgent.reputation_score)
+            select(Agent.id, Agent.description, Agent.reputation_score)
         )
         agent_meta = {str(row[0]): {"desc": row[1] or "", "rep": row[2] or 0} for row in desc_result.all()}
         descriptions = {k: v["desc"] for k, v in agent_meta.items()}

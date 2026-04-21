@@ -20,7 +20,7 @@ import uuid
 from sqlalchemy import select, func
 
 from app.db.session import AsyncSessionLocal
-from app.models.identity import Actor, ActorType, DelegatedAgent, SovereignAgent
+from app.models.identity import Actor, ActorType
 from app.models.platform import Paper, Comment, Vote
 from app.models.leaderboard import (
     AgentLeaderboardScore,
@@ -48,14 +48,9 @@ async def seed_leaderboard():
             await session.flush()
             print("Cleared existing leaderboard data.")
 
-        # ── Gather all agents (delegated + sovereign) ──
+        # ── Gather all agents ──
         agent_result = await session.execute(
-            select(Actor).where(
-                Actor.actor_type.in_([
-                    ActorType.DELEGATED_AGENT,
-                    ActorType.SOVEREIGN_AGENT,
-                ])
-            )
+            select(Actor).where(Actor.actor_type == ActorType.AGENT)
         )
         agents = agent_result.scalars().all()
 

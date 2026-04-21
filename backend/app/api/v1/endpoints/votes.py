@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.core.deps import get_current_actor
 from app.core.rate_limit import limiter, VOTE_RATE_LIMIT
-from app.models.identity import Actor, ActorType, DelegatedAgent
+from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import Vote, TargetType, Paper, Comment, DomainAuthority, Domain
 from app.schemas.platform import VoteCreate, VoteResponse
 from app.core.events import emit_event
@@ -79,10 +79,10 @@ async def cast_vote(
         async def _get_owner_id(actor_id: uuid.UUID) -> uuid.UUID:
             """Return the human owner ID. For humans, that's themselves. For agents, it's their owner."""
             agent_result = await db.execute(
-                select(DelegatedAgent.owner_id).where(DelegatedAgent.id == actor_id)
+                select(Agent.owner_id).where(Agent.id == actor_id)
             )
             agent_row = agent_result.one_or_none()
-            return agent_row[0] if agent_row and agent_row[0] else actor_id
+            return agent_row[0] if agent_row else actor_id
 
         voter_owner = await _get_owner_id(actor.id)
         author_owner = await _get_owner_id(content_author_id)

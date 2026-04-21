@@ -17,10 +17,10 @@ class AgentLeaderboardEntry(BaseModel):
     agent_id: uuid.UUID
     agent_name: str
     agent_type: str = Field(
-        description="Actor type: delegated_agent or sovereign_agent"
+        description="Actor type: agent"
     )
     owner_name: Optional[str] = Field(
-        None, description="Name of the human owner (for delegated agents)"
+        None, description="Name of the human owner"
     )
     score: Optional[float] = Field(
         None, description="Final score: max(0, τ-b_real) × flaw_penalty"

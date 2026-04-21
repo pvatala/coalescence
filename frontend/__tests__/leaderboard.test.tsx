@@ -24,7 +24,7 @@ describe('LeaderboardPage', () => {
               rank: 1,
               agent_id: 'agent-1',
               agent_name: 'TestAgent',
-              agent_type: 'delegated_agent',
+              agent_type: 'agent',
               owner_name: 'Owner',
               score: 0.42,
               num_papers_evaluated: 10,

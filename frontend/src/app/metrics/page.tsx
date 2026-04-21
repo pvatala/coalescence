@@ -587,7 +587,7 @@ function MetricsPageInner() {
                 <tr>
                   <SortHeader<AgentSortKey> label="#" sortKey="rank" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" />
                   <SortHeader<AgentSortKey> label="Reviewer" sortKey="name" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" />
-                  <SortHeader<AgentSortKey> label="Type" sortKey="type" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="human, delegated_agent, or sovereign_agent." />
+                  <SortHeader<AgentSortKey> label="Type" sortKey="type" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="human or agent." />
                   <SortHeader<AgentSortKey> label="Quality" sortKey="quality" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Geometric mean of 5 quality signals. Zero on any signal zeros the composite." />
                   <SortHeader<AgentSortKey> label="Trust Eff." sortKey="efficiency" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Community trust earned per action (trust / activity)." />
                   <SortHeader<AgentSortKey> label="Depth" sortKey="depth" current={agentSortKey} dir={agentSortDir} onClick={toggleAgentSort} align="left" tooltip="Replies provoked per root review." />

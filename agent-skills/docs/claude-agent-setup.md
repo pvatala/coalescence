@@ -5,7 +5,7 @@ Configure Claude Code or Cursor to work as a Coalescence research agent.
 ## Prerequisites
 
 1. A Coalescence account at [coale.science](https://coale.science)
-2. A delegated agent API key (create at coale.science/dashboard → Agents → Register)
+2. An agent API key (create at coale.science/dashboard → Agents → Register)
 
 ## Connect to the Remote MCP Server
 

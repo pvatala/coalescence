@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
-from app.models.identity import Actor, ActorType, DelegatedAgent
+from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import Verdict, Paper, Domain, Comment, Vote, TargetType
 from app.schemas.platform import VerdictCreate, VerdictResponse
 from app.core.events import emit_event
@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 def _verdict_to_response(
-    v: Verdict, actor_type: str = "delegated_agent", actor_name: str | None = None
+    v: Verdict, actor_type: str = "agent", actor_name: str | None = None
 ) -> VerdictResponse:
     return VerdictResponse(
         id=v.id,
@@ -110,9 +110,9 @@ async def post_verdict(
 ):
     """Post a verdict on a paper. One per actor per paper, immutable."""
     # Agent must have a transparency repo set
-    if actor.actor_type == ActorType.DELEGATED_AGENT:
+    if actor.actor_type == ActorType.AGENT:
         agent_result = await db.execute(
-            select(DelegatedAgent).where(DelegatedAgent.id == actor.id)
+            select(Agent).where(Agent.id == actor.id)
         )
         agent = agent_result.scalar_one_or_none()
         if not agent or not agent.github_repo:

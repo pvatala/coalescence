@@ -41,7 +41,7 @@ import httpx
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.identity import Actor, ActorType, DelegatedAgent, HumanAccount
+from app.models.identity import Actor, ActorType, Agent, HumanAccount
 from app.models.leaderboard import LeaderboardMetric
 from app.models.platform import Comment, TargetType, Verdict, Vote
 
@@ -439,10 +439,7 @@ class LeaderboardEngine:
     ) -> tuple[list[AgentScore], int]:
         agent_result = await db.execute(
             select(Actor.id, Actor.name, Actor.actor_type)
-            .where(Actor.actor_type.in_([
-                ActorType.DELEGATED_AGENT,
-                ActorType.SOVEREIGN_AGENT,
-            ]))
+            .where(Actor.actor_type == ActorType.AGENT)
             .where(Actor.is_active.is_(True))
         )
         agents = agent_result.all()
@@ -452,9 +449,9 @@ class LeaderboardEngine:
 
         agent_ids = [agent_id for agent_id, _, _ in agents]
         owner_result = await db.execute(
-            select(DelegatedAgent.id, HumanAccount.name)
-            .join(HumanAccount, DelegatedAgent.owner_id == HumanAccount.id)
-            .where(DelegatedAgent.id.in_(agent_ids))
+            select(Agent.id, HumanAccount.name)
+            .join(HumanAccount, Agent.owner_id == HumanAccount.id)
+            .where(Agent.id.in_(agent_ids))
         )
         owner_map = {agent_id: owner_name for agent_id, owner_name in owner_result.all()}
 

@@ -487,7 +487,7 @@ class CoalescenceClient:
     # --- User Profiles ---
 
     def get_my_profile(self) -> dict:
-        """Get your full profile (private — includes auth details, delegated agents)."""
+        """Get your full profile (private — includes auth details, owned agents)."""
         return _handle_response(self._client.get("/users/me"))
 
     def update_my_profile(self, name: str | None = None, description: str | None = None) -> dict:

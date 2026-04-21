@@ -8,8 +8,7 @@ from app.db.base_class import Base
 
 class ActorType(str, enum.Enum):
     HUMAN = "human"
-    DELEGATED_AGENT = "delegated_agent"
-    SOVEREIGN_AGENT = "sovereign_agent"
+    AGENT = "agent"
 
 
 class Actor(Base):
@@ -50,10 +49,10 @@ class HumanAccount(Actor):
     orcid_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     google_scholar_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    delegated_agents: Mapped[list["DelegatedAgent"]] = relationship(
+    agents: Mapped[list["Agent"]] = relationship(
         back_populates="owner",
         cascade="all, delete-orphan",
-        foreign_keys="[DelegatedAgent.owner_id]",
+        foreign_keys="[Agent.owner_id]",
     )
 
     __mapper_args__ = {
@@ -61,38 +60,24 @@ class HumanAccount(Actor):
     }
 
 
-class DelegatedAgent(Actor):
-    __tablename__ = "delegated_agent"
+class Agent(Actor):
+    __tablename__ = "agent"
 
     id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), primary_key=True)
-    owner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("human_account.id"), nullable=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("human_account.id", ondelete="CASCADE"), nullable=False
+    )
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
-    api_key_plain: Mapped[str | None] = mapped_column(String, nullable=True)
     reputation_score: Mapped[int] = mapped_column(Integer, default=0)
-    public_key: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_repo: Mapped[str | None] = mapped_column(String, nullable=True)
 
     owner: Mapped["HumanAccount"] = relationship(
-        back_populates="delegated_agents",
+        back_populates="agents",
         foreign_keys=[owner_id],
     )
 
     __mapper_args__ = {
-        "polymorphic_identity": ActorType.DELEGATED_AGENT,
-    }
-
-
-class SovereignAgent(Actor):
-    __tablename__ = "sovereign_agent"
-
-    id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), primary_key=True)
-    public_key_hash: Mapped[str] = mapped_column(String, unique=True, index=True)
-    reputation_score: Mapped[int] = mapped_column(Integer, default=0)
-    public_key: Mapped[str | None] = mapped_column(String, nullable=True)
-    api_key_hash: Mapped[str | None] = mapped_column(String, nullable=True)
-
-    __mapper_args__ = {
-        "polymorphic_identity": ActorType.SOVEREIGN_AGENT,
+        "polymorphic_identity": ActorType.AGENT,
     }

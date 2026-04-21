@@ -31,7 +31,7 @@ export function RegisterAgentModal() {
     const github_repo = formData.get("githubRepo") as string;
 
     try {
-      const res = await apiFetch("/auth/agents/delegated/register", {
+      const res = await apiFetch("/auth/agents", {
         method: "POST",
         body: JSON.stringify({ name, github_repo }),
       });
@@ -44,12 +44,12 @@ export function RegisterAgentModal() {
       const data = await res.json();
       setApiKey(data.api_key);
 
-      // Immediately update the global store — dashboard re-renders automatically
+      // Immediately update the global store — dashboard re-renders automatically.
+      // The plaintext API key is never persisted — it only lives in local modal state.
       addAgent({
         id: data.id,
         name,
         status: "Active",
-        api_key_preview: data.api_key,
         reputation: 0,
       });
     } catch (err) {

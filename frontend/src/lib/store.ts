@@ -40,11 +40,10 @@ interface AgentStats {
   votes_received: number;
 }
 
-interface DelegatedAgent {
+interface Agent {
   id: string;
   name: string;
   status: string;
-  api_key_preview: string;
   reputation: number;
   stats?: AgentStats;
 }
@@ -55,7 +54,7 @@ interface UserProfile {
   auth_method: string;
   reputation_score: number;
   voting_weight: number;
-  delegated_agents: DelegatedAgent[];
+  agents: Agent[];
   orcid_id?: string | null;
   google_scholar_id?: string | null;
 }
@@ -124,7 +123,7 @@ interface ProfileState {
   reputation: DomainAuthority[];
   loading: boolean;
   fetchProfile: () => Promise<void>;
-  addAgent: (agent: DelegatedAgent) => void;
+  addAgent: (agent: Agent) => void;
   removeAgent: (agentId: string) => void;
   clear: () => void;
 }
@@ -154,7 +153,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
       set({
         profile: {
           ...profile,
-          delegated_agents: [...profile.delegated_agents, agent],
+          agents: [...profile.agents, agent],
         },
       });
     }
@@ -166,7 +165,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
       set({
         profile: {
           ...profile,
-          delegated_agents: profile.delegated_agents.map((a) =>
+          agents: profile.agents.map((a) =>
             a.id === agentId ? { ...a, status: 'Suspended' } : a
           ),
         },

@@ -1,7 +1,7 @@
 """
 Authentication endpoints:
 - Email/password signup and login (for humans)
-- Delegated agent API key registration and management
+- Agent API key registration and management
 - Agent API key → JWT exchange (for computer-use agents in browsers)
 - ORCID OAuth verification (for academic identity, not login)
 """
@@ -25,15 +25,14 @@ from app.core.security import (
     verify_password,
 )
 from app.core.deps import get_current_actor
-from app.models.identity import Actor, ActorType, HumanAccount, DelegatedAgent
+from app.models.identity import Actor, ActorType, HumanAccount, Agent
 from app.schemas.auth import (
     SignupRequest,
     LoginRequest,
     AgentKeyLoginRequest,
-    DelegatedAgentRegisterRequest,
-    AgentPublicRegisterRequest,
-    DelegatedAgentRegisterResponse,
-    DelegatedAgentListResponse,
+    AgentCreateRequest,
+    AgentCreateResponse,
+    AgentListResponse,
     TokenResponse,
 )
 from app.schemas.platform import MessageResponse, OrcidConnectResponse, OrcidCallbackResponse, ScholarLinkResponse
@@ -51,7 +50,6 @@ async def signup(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new human account with email and password."""
-    # Check if email already exists
     existing = await db.execute(
         select(HumanAccount).where(HumanAccount.email == request.email)
     )
@@ -137,7 +135,7 @@ async def agent_key_login(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Login as a delegated agent using an API key.
+    Login as an agent using an API key.
     Returns a JWT that can be used in the browser session.
     Designed for computer-use agents navigating the web UI.
     """
@@ -188,64 +186,6 @@ async def refresh_access_token(
     )
 
 
-# --- Agent Registration (public, but requires owner identity) ---
-
-
-@router.post(
-    "/agents/register",
-    response_model=DelegatedAgentRegisterResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def register_agent(
-    request: AgentPublicRegisterRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Register an agent with a human owner. No auth required, but owner_email
-    and owner_name are mandatory. If the email already belongs to an existing
-    account, use the authenticated endpoint /agents/delegated/register instead.
-    """
-    # Reject if email already taken — prevents hijacking existing accounts
-    result = await db.execute(
-        select(HumanAccount).where(HumanAccount.email == request.owner_email)
-    )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=409,
-            detail="This email already has an account. Log in and use /agents/delegated/register instead.",
-        )
-
-    owner = HumanAccount(
-        name=request.owner_name,
-        email=request.owner_email,
-        hashed_password=hash_password(request.owner_password),
-    )
-    db.add(owner)
-    await db.flush()
-    await db.refresh(owner)
-
-    api_key = generate_api_key()
-    agent = DelegatedAgent(
-        name=request.name,
-        description=request.description,
-        github_repo=request.github_repo,
-        owner_id=owner.id,
-        api_key_hash=hash_api_key(api_key),
-        api_key_lookup=compute_key_lookup(api_key),
-        api_key_plain=api_key,
-    )
-    db.add(agent)
-    await db.flush()
-    await db.refresh(agent)
-    await db.commit()
-
-    # Sync actor to Qdrant (fire-and-forget)
-    import asyncio
-    asyncio.create_task(_sync_actor_to_qdrant(agent))
-
-    return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
-
-
 async def _sync_actor_to_qdrant(actor):
     """Generate embedding and upsert actor to Qdrant. Best-effort."""
     try:
@@ -270,71 +210,70 @@ async def _sync_actor_to_qdrant(actor):
         pass  # Non-critical — backfill will catch it
 
 
-# --- Delegated Agent Management (authenticated) ---
+# --- Agent Management (authenticated — humans only) ---
 
 
 @router.post(
-    "/agents/delegated/register",
-    response_model=DelegatedAgentRegisterResponse,
+    "/agents",
+    response_model=AgentCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def register_delegated_agent(
-    request: DelegatedAgentRegisterRequest,
+async def create_agent(
+    request: AgentCreateRequest,
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Register a new delegated agent under the authenticated human account.
-    Returns the API key — shown only once.
+    Create a new agent owned by the authenticated human.
+    Returns the API key — shown only once, never persisted in plaintext.
+    Agents cannot create other agents (only humans can).
     """
     if actor.actor_type != ActorType.HUMAN:
         raise HTTPException(
-            status_code=403, detail="Only human accounts can register delegated agents"
+            status_code=403, detail="Only human accounts can create agents"
         )
 
     api_key = generate_api_key()
-    agent = DelegatedAgent(
+    agent = Agent(
         name=request.name,
         description=request.description,
         github_repo=request.github_repo,
         owner_id=actor.id,
         api_key_hash=hash_api_key(api_key),
         api_key_lookup=compute_key_lookup(api_key),
-        api_key_plain=api_key,
     )
     db.add(agent)
     await db.flush()
     await db.refresh(agent)
     await db.commit()
 
-    # Sync actor to Qdrant (fire-and-forget)
     import asyncio
     asyncio.create_task(_sync_actor_to_qdrant(agent))
 
-    return DelegatedAgentRegisterResponse(id=agent.id, api_key=api_key)
+    return AgentCreateResponse(id=agent.id, api_key=api_key)
 
 
-@router.get("/agents/delegated", response_model=list[DelegatedAgentListResponse])
-async def list_delegated_agents(
+@router.get("/agents", response_model=list[AgentListResponse])
+async def list_agents(
     limit: int = 50,
     skip: int = 0,
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """List delegated agents owned by the current human (paginated)."""
+    """List agents owned by the current human (paginated)."""
     if actor.actor_type != ActorType.HUMAN:
-        raise HTTPException(status_code=403, detail="Only human accounts have delegated agents")
+        raise HTTPException(status_code=403, detail="Only human accounts have agents")
 
     result = await db.execute(
-        select(DelegatedAgent)
-        .where(DelegatedAgent.owner_id == actor.id)
+        select(Agent)
+        .where(Agent.owner_id == actor.id)
         .offset(skip)
         .limit(limit)
     )
     agents = result.scalars().all()
 
     return [
-        DelegatedAgentListResponse(
+        AgentListResponse(
             id=a.id,
             name=a.name,
             is_active=a.is_active,
@@ -345,20 +284,20 @@ async def list_delegated_agents(
     ]
 
 
-@router.delete("/agents/delegated/{agent_id}", response_model=MessageResponse)
-async def revoke_delegated_agent(
+@router.delete("/agents/{agent_id}", response_model=MessageResponse)
+async def revoke_agent(
     agent_id: str,
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Kill switch: deactivate a delegated agent."""
+    """Kill switch: deactivate an agent."""
     if actor.actor_type != ActorType.HUMAN:
         raise HTTPException(status_code=403, detail="Only human accounts can manage agents")
 
     result = await db.execute(
-        select(DelegatedAgent).where(
-            DelegatedAgent.id == agent_id,
-            DelegatedAgent.owner_id == actor.id,
+        select(Agent).where(
+            Agent.id == agent_id,
+            Agent.owner_id == actor.id,
         )
     )
     agent = result.scalar_one_or_none()
@@ -386,7 +325,6 @@ async def orcid_connect(actor: Actor = Depends(get_current_actor)):
     if not settings.ORCID_CLIENT_ID:
         raise HTTPException(status_code=501, detail="ORCID OAuth not configured")
 
-    # Sign the actor_id into state so callback knows who initiated
     state_token = jwt.encode(
         {"sub": str(actor.id), "purpose": "orcid_link"},
         settings.SECRET_KEY,
@@ -401,7 +339,6 @@ async def orcid_connect(actor: Actor = Depends(get_current_actor)):
         f"&redirect_uri={settings.ORCID_REDIRECT_URI}"
         f"&state={state_token}"
     )
-    # Return URL instead of redirect — frontend opens it (preserves JWT context)
     return {"url": orcid_auth_url}
 
 
@@ -415,7 +352,6 @@ async def orcid_callback(
     ORCID OAuth callback. Verifies state, exchanges code for ORCID iD,
     and links it to the user identified in the state token.
     """
-    # Verify state token to identify which user initiated this
     try:
         payload = jwt.decode(state, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("purpose") != "orcid_link":
@@ -424,7 +360,6 @@ async def orcid_callback(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
 
-    # Exchange code for token + ORCID iD
     async with httpx.AsyncClient() as client:
         token_resp = await client.post(
             "https://orcid.org/oauth/token",
@@ -443,15 +378,12 @@ async def orcid_callback(
     if not orcid_id:
         raise HTTPException(status_code=400, detail="Failed to get ORCID iD from token response")
 
-    # Check if this ORCID is already linked to another account
     existing = await db.execute(
         select(HumanAccount).where(HumanAccount.orcid_id == orcid_id)
     )
     if existing.scalar_one_or_none():
-        # Redirect to dashboard with error
         return RedirectResponse(url="/dashboard?orcid_error=already_linked")
 
-    # Link ORCID to the user
     import uuid as _uuid
     result = await db.execute(select(HumanAccount).where(HumanAccount.id == _uuid.UUID(actor_id)))
     human = result.scalar_one_or_none()
@@ -461,7 +393,6 @@ async def orcid_callback(
     human.orcid_id = orcid_id
     await db.commit()
 
-    # Redirect to dashboard with success
     return RedirectResponse(url="/dashboard?orcid_linked=true")
 
 
@@ -475,7 +406,6 @@ async def link_google_scholar(
     if actor.actor_type != ActorType.HUMAN:
         raise HTTPException(status_code=403, detail="Only human accounts can link Scholar")
 
-    # Must have ORCID verified first
     result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
     human = result.scalar_one()
 

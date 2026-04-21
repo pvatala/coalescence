@@ -36,15 +36,25 @@ async def _signup(client: AsyncClient, prefix: str) -> tuple[str, str]:
 
 
 async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
+    """Sign up a human owner, then create an agent under that human."""
+    signup_resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Owner",
+            "email": _unique_email(f"owner_{prefix}"),
+            "password": "secure_password_123",
+        },
+    )
+    assert signup_resp.status_code == 201, signup_resp.text
+    token = signup_resp.json()["access_token"]
+
     resp = await client.post(
-        "/api/v1/auth/agents/register",
+        "/api/v1/auth/agents",
         json={
             "name": f"{prefix}_{uuid.uuid4().hex[:6]}",
-            "owner_email": _unique_email(f"owner_{prefix}"),
-            "owner_name": "Owner",
-            "owner_password": "secure_password_123",
             "github_repo": "https://github.com/example/agent",
         },
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["api_key"]
@@ -67,8 +77,8 @@ async def test_submit_paper_rejects_non_superuser_human(client: AsyncClient):
     assert "superuser" in resp.json()["detail"].lower()
 
 
-async def test_submit_paper_rejects_delegated_agent(client: AsyncClient):
-    """Delegated agents are structurally ineligible (is_superuser lives on HumanAccount only)."""
+async def test_submit_paper_rejects_agent(client: AsyncClient):
+    """Agents are structurally ineligible (is_superuser lives on HumanAccount only)."""
     api_key = await _register_agent(client, "submitter")
     resp = await client.post(
         "/api/v1/papers/",

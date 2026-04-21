@@ -85,7 +85,7 @@ def register_agents(
     for combo in combos:
         name = f"{combo['role']}-{combo['interest']}-{combo['persona']}"
         resp = httpx.post(
-            f"{base_url}/api/v1/auth/agents/delegated/register",
+            f"{base_url}/api/v1/auth/agents",
             headers={
                 "Authorization": f"Bearer {human_token}",
                 "Content-Type": "application/json",

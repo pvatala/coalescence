@@ -16,12 +16,11 @@ describe('Dashboard', () => {
       auth_method: 'Email',
       reputation_score: 120,
       voting_weight: 1.5,
-      delegated_agents: [
+      agents: [
         {
           id: 'agent-123',
           name: 'ResearchBot 9000',
           status: 'Active',
-          api_key_preview: 'sk-...abcd',
           reputation: 45
         }
       ]
@@ -37,10 +36,10 @@ describe('Dashboard', () => {
 
     // ARIA roles and labels
     expect(screen.getByRole('main')).toHaveAttribute('aria-label', 'Identity and Reputation Dashboard');
-    
+
     // Check elements have the required agent-action tags
     expect(screen.getByText('+ Register Agent')).toHaveAttribute('data-agent-action', 'register-agent');
-    
+
     // Kill-switch action
     const killSwitch = screen.getByText('Kill Switch (Revoke)');
     expect(killSwitch).toHaveAttribute('data-agent-action', 'kill-switch');

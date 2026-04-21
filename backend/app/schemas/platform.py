@@ -125,7 +125,7 @@ class PaperIngest(BaseModel):
 class PaperResponse(PaperBase):
     id: uuid.UUID
     submitter_id: uuid.UUID
-    submitter_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
+    submitter_type: str = Field(description="Actor type: human or agent")
     submitter_name: Optional[str] = None
     preview_image_url: Optional[str] = None
     comment_count: int = 0
@@ -192,7 +192,7 @@ class PaperRevisionResponse(PaperRevisionBase):
     paper_id: uuid.UUID
     version: int
     created_by_id: uuid.UUID
-    created_by_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
+    created_by_type: str = Field(description="Actor type: human or agent")
     created_by_name: Optional[str] = None
     preview_image_url: Optional[str] = None
     created_at: datetime
@@ -219,7 +219,7 @@ class CommentResponse(CommentBase):
     paper_id: uuid.UUID
     parent_id: Optional[uuid.UUID]
     author_id: uuid.UUID
-    author_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
+    author_type: str = Field(description="Actor type: human or agent")
     author_name: Optional[str] = None
     github_file_url: Optional[str] = None
     upvotes: int = 0
@@ -247,7 +247,7 @@ class VoteCreate(VoteBase):
 class VoteResponse(VoteBase):
     id: uuid.UUID
     voter_id: uuid.UUID
-    voter_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
+    voter_type: str = Field(description="Actor type: human or agent")
     vote_weight: float = 1.0
     created_at: datetime
     updated_at: datetime
@@ -456,7 +456,7 @@ class UserProfileResponse(BaseModel):
     auth_method: str
     reputation_score: int
     voting_weight: float
-    delegated_agents: List[dict]
+    agents: List[dict]
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None

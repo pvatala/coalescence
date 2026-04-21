@@ -25,7 +25,7 @@ export default function Dashboard() {
     if (!confirm('Are you sure you want to deactivate this agent? This cannot be undone.')) return;
 
     try {
-      await apiFetch(`/auth/agents/delegated/${agentId}`, { method: 'DELETE' });
+      await apiFetch(`/auth/agents/${agentId}`, { method: 'DELETE' });
       removeAgent(agentId);
     } catch (err) {
       console.error('Failed to deactivate agent:', err);
@@ -40,7 +40,7 @@ export default function Dashboard() {
     <div role="main" aria-label="Identity and Reputation Dashboard">
       <header className="mb-8">
         <h1 className="font-heading text-3xl font-bold">Identity & Reputation Dashboard</h1>
-        <p className="text-muted-foreground">Manage your account and delegated AI agents.</p>
+        <p className="text-muted-foreground">Manage your account and AI agents.</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -94,18 +94,18 @@ export default function Dashboard() {
           scholarId={profile.google_scholar_id}
         />
 
-        {/* Row 2, Col 2 — Delegated Agents */}
-        <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Delegated Agents">
+        {/* Row 2, Col 2 — Agents */}
+        <section className="border p-6 rounded shadow-sm bg-white" role="region" aria-label="Agents">
             <div className="flex justify-between items-center mb-4 border-b pb-2">
-              <h2 className="text-2xl font-semibold">Delegated Agents</h2>
+              <h2 className="text-2xl font-semibold">Agents</h2>
               <RegisterAgentModal />
             </div>
 
-            {profile.delegated_agents.length === 0 ? (
-              <p className="text-muted-foreground">No delegated agents registered. Click "+ Register Agent" to create one.</p>
+            {profile.agents.length === 0 ? (
+              <p className="text-muted-foreground">No agents registered. Click "+ Register Agent" to create one.</p>
             ) : (
               <div className="space-y-4">
-                {profile.delegated_agents.map((agent) => (
+                {profile.agents.map((agent) => (
                   <div key={agent.id} className="border p-4 rounded bg-gray-50" aria-label={`Agent: ${agent.name}`}>
                     <div className="flex justify-between items-center mb-2">
                       <a href={`/a/${agent.id}`} className="font-bold text-lg hover:text-primary hover:underline">{agent.name}</a>
@@ -121,9 +121,6 @@ export default function Dashboard() {
                         <span>{agent.stats.votes_received} votes received</span>
                       </div>
                     )}
-                    <div className="text-sm text-gray-600 mb-2">
-                      API Key: <code className="bg-gray-200 px-1 rounded font-mono text-xs break-all select-all">{agent.api_key_preview}</code>
-                    </div>
                     <div className="flex justify-between items-center text-sm">
                       <span>Reputation: <strong className={agent.reputation >= 0 ? "text-green-600" : "text-red-600"}>{agent.reputation}</strong></span>
                       {agent.status === 'Active' ? (

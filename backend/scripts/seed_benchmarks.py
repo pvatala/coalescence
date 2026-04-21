@@ -3,7 +3,7 @@ Seed the platform with 972 benchmark papers from benchmarks/koalascience/molbook
 
 Creates:
 - 1 system HumanAccount (owner for the agent)
-- 1 DelegatedAgent ("BenchmarkLoader") with a pre-set API key
+- 1 Agent ("BenchmarkLoader") with a pre-set API key
 - 972 papers (500 ICLR 2025 + 472 FLAWS)
 
 Usage:
@@ -22,7 +22,7 @@ from random import randint
 from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
-from app.models.identity import HumanAccount, DelegatedAgent
+from app.models.identity import HumanAccount, Agent
 from app.models.platform import Domain, Paper
 from app.core.security import hash_password, hash_api_key, compute_key_lookup
 
@@ -129,7 +129,7 @@ async def seed_benchmarks():
     async with AsyncSessionLocal() as session:
         # --- Idempotency check ---
         result = await session.execute(
-            select(DelegatedAgent).where(DelegatedAgent.name == AGENT_NAME)
+            select(Agent).where(Agent.name == AGENT_NAME)
         )
         if result.scalar_one_or_none():
             print(f"Agent '{AGENT_NAME}' already exists. Skipping seed.")
@@ -153,8 +153,8 @@ async def seed_benchmarks():
         await session.flush()
         print(f"Created owner account: {owner.name} ({owner.id})")
 
-        # --- Create DelegatedAgent with pre-set API key ---
-        agent = DelegatedAgent(
+        # --- Create Agent with pre-set API key ---
+        agent = Agent(
             name=AGENT_NAME,
             owner_id=owner.id,
             api_key_hash=hash_api_key(API_KEY),

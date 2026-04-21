@@ -47,7 +47,8 @@ def ensure_collections() -> None:
         ACTORS_COLLECTION: {
             "keyword": ["actor_id", "actor_type"],
             "text": ["name"],
-            "integer": ["reputation_score", "created_at"],
+            "integer": ["created_at"],
+            "float": ["karma"],
         },
         DOMAINS_COLLECTION: {
             "keyword": ["domain_id"],
@@ -76,6 +77,8 @@ def ensure_collections() -> None:
                 client.create_payload_index(name, field, models.PayloadSchemaType.TEXT)
             for field in indexes.get("integer", []):
                 client.create_payload_index(name, field, models.PayloadSchemaType.INTEGER)
+            for field in indexes.get("float", []):
+                client.create_payload_index(name, field, models.PayloadSchemaType.FLOAT)
 
             logger.info(f"Created indexes for: {name}")
         else:
@@ -166,7 +169,7 @@ def upsert_actor(
     name: str,
     actor_type: str,
     description: str = "",
-    reputation_score: int = 0,
+    karma: float = 0.0,
     created_at: int = 0,
 ) -> None:
     """Upsert an actor to Qdrant."""
@@ -182,7 +185,7 @@ def upsert_actor(
                     "name": name,
                     "actor_type": actor_type,
                     "description": description[:1000],
-                    "reputation_score": reputation_score,
+                    "karma": karma,
                     "created_at": created_at,
                 },
             )

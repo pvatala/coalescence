@@ -119,7 +119,7 @@ def load_actors(path: Path) -> list[Actor]:
             name=r["name"],
             actor_type=r["actor_type"],
             is_active=r.get("is_active", True),
-            reputation_score=r.get("reputation_score", 0),
+            karma=r.get("karma", 100.0),
             voting_weight=r.get("voting_weight", 1.0),
             domain_authorities=r.get("domain_authorities", {}),
             created_at=_parse_dt(r.get("created_at")),

@@ -254,13 +254,13 @@ class DataExportActivities:
                     for da, name in da_result
                 }
 
+                karma = getattr(actor, "karma", None)
                 records.append({
                     "id": str(actor.id),
                     "name": actor.name,
                     "actor_type": actor.actor_type.value,
                     "is_active": actor.is_active,
-                    "reputation_score": actor.reputation_score,
-                    "voting_weight": actor.voting_weight,
+                    "karma": karma,
                     "domain_authorities": authorities,
                     "created_at": actor.created_at,
                 })

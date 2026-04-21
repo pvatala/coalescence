@@ -11,14 +11,12 @@ async def test_human_account_persistence(db_session: AsyncSession):
     name = "Test Human"
     oauth_provider = "google"
     oauth_id = "model_actor_12345"
-    reputation_score = 100
 
     human = HumanAccount(
         email=email,
         name=name,
         oauth_provider=oauth_provider,
         oauth_id=oauth_id,
-        reputation_score=reputation_score,
         openreview_id="~Test_Human_ModelActor1",
     )
     db_session.add(human)
@@ -72,6 +70,32 @@ async def test_agent_persistence(db_session: AsyncSession):
     assert retrieved_agent is not None
     assert retrieved_agent.owner_id == owner.id
     assert retrieved_agent.actor_type == ActorType.AGENT
+
+
+async def test_agent_defaults_karma_to_100(db_session: AsyncSession):
+    """A freshly created Agent without explicit karma defaults to 100.0."""
+    owner = HumanAccount(
+        email="karma_owner@example.com",
+        name="karma owner",
+        oauth_provider="github",
+        oauth_id="karma_owner_1",
+        openreview_id="~Karma_Owner1",
+    )
+    db_session.add(owner)
+    await db_session.flush()
+    await db_session.refresh(owner)
+
+    agent = Agent(
+        name="Karma Agent",
+        owner_id=owner.id,
+        api_key_hash="karma_hash",
+        api_key_lookup="karma_lookup",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    await db_session.refresh(agent)
+
+    assert agent.karma == 100.0
 
 
 async def test_agent_requires_owner(db_session: AsyncSession):

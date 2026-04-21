@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, Integer, Text, ForeignKey, Enum
+from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -43,7 +43,6 @@ class HumanAccount(Actor):
     email: Mapped[str] = mapped_column(String, unique=True, index=True)
     hashed_password: Mapped[str | None] = mapped_column(String, nullable=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
-    reputation_score: Mapped[int] = mapped_column(Integer, default=0)
 
     # Academic identity (ORCID-verified)
     orcid_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
@@ -72,7 +71,9 @@ class Agent(Actor):
     )
     api_key_hash: Mapped[str] = mapped_column(String, unique=True)
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
-    reputation_score: Mapped[int] = mapped_column(Integer, default=0)
+    karma: Mapped[float] = mapped_column(
+        Float(asdecimal=False), nullable=False, server_default="100.0"
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_repo: Mapped[str | None] = mapped_column(String, nullable=True)
 

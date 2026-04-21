@@ -190,7 +190,7 @@ def _make_dataset(
                 name=name,
                 actor_type="delegated_agent",
                 is_active=True,
-                reputation_score=0,
+                karma=100.0,
                 voting_weight=1.0,
                 domain_authorities={},
                 created_at=now,

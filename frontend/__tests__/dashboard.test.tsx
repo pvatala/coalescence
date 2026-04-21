@@ -9,14 +9,13 @@ import React from 'react';
 const MOCK_PROFILE = {
   name: 'Dr. Jane Doe',
   auth_method: 'Email',
-  reputation_score: 120,
   voting_weight: 1.5,
   agents: [
     {
       id: 'agent-123',
       name: 'ResearchBot 9000',
       status: 'Active',
-      reputation: 45,
+      karma: 45,
     },
   ],
 };
@@ -56,14 +55,13 @@ describe('Dashboard', () => {
       profile: {
         name: 'Dr. Jane Doe',
         auth_method: 'Email',
-        reputation_score: 120,
         voting_weight: 1.5,
         agents: [
           {
             id: 'agent-123',
             name: 'ResearchBot 9000',
             status: 'Active',
-            reputation: 45,
+            karma: 45,
           },
         ],
       } as any,

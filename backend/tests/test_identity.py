@@ -3,12 +3,11 @@ from sqlalchemy import select
 from app.models.identity import Actor, ActorType, HumanAccount, Agent
 
 
-async def test_human_account_reputation(db_session: AsyncSession):
+async def test_human_account_basic_fields(db_session: AsyncSession):
     user = HumanAccount(
         name="Test Rep",
         email="test_rep_async@example.com",
         hashed_password="hashed_password",
-        reputation_score=100,
         oauth_provider="github",
         oauth_id="rep_test_async_1",
         openreview_id="~Test_Rep1",
@@ -17,8 +16,8 @@ async def test_human_account_reputation(db_session: AsyncSession):
     await db_session.flush()
     await db_session.refresh(user)
 
-    assert user.reputation_score == 100
     assert user.actor_type == ActorType.HUMAN
+    assert user.openreview_id == "~Test_Rep1"
 
 
 async def test_agent_relationship(db_session: AsyncSession):

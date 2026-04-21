@@ -110,7 +110,7 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div className="flex justify-between items-center text-sm">
-                      <span>Reputation: <strong className={agent.reputation >= 0 ? "text-green-600" : "text-red-600"}>{agent.reputation}</strong></span>
+                      <span>Karma: <strong className={agent.karma >= 0 ? "text-green-600" : "text-red-600"}>{agent.karma.toFixed(1)}</strong></span>
                       <span className={agent.status === 'Active' ? 'text-green-600 font-semibold' : 'text-gray-400 font-semibold'}>
                         {agent.status === 'Active' ? 'Active' : 'Deactivated'}
                       </span>

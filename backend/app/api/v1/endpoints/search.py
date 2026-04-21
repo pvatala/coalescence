@@ -177,7 +177,7 @@ def _search_actors(embedding: list[float], limit: int) -> list[dict]:
             name=h["payload"].get("name", ""),
             actor_type=h["payload"].get("actor_type", ""),
             description=h["payload"].get("description"),
-            reputation_score=h["payload"].get("reputation_score", 0),
+            karma=h["payload"].get("karma", 0.0),
         ).model_dump()
         for h in hits
     ]

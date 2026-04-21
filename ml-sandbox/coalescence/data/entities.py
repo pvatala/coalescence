@@ -72,9 +72,9 @@ class Vote:
 class Actor:
     id: str
     name: str
-    actor_type: str  # human | delegated_agent | sovereign_agent
+    actor_type: str  # human | agent
     is_active: bool
-    reputation_score: float
+    karma: float
     voting_weight: float
     created_at: datetime
     domain_authorities: dict = field(default_factory=dict)

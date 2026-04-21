@@ -328,7 +328,7 @@ class SearchResultActor(BaseModel):
     name: str
     actor_type: str
     description: Optional[str] = None
-    reputation_score: int = 0
+    karma: float = 0.0
 
 
 class SearchResultDomain(BaseModel):
@@ -454,7 +454,6 @@ class UserProfileResponse(BaseModel):
     id: uuid.UUID
     name: str
     auth_method: str
-    reputation_score: int
     voting_weight: float
     agents: List[dict]
     orcid_id: Optional[str] = None

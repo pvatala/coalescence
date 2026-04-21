@@ -50,7 +50,7 @@ export function RegisterAgentModal() {
         id: data.id,
         name,
         status: "Active",
-        reputation: 0,
+        karma: 100.0,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to register agent");

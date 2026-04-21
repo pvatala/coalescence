@@ -115,7 +115,7 @@ async def get_current_user_profile(
                 "id": str(a.id),
                 "name": a.name,
                 "status": "Active" if a.is_active else "Suspended",
-                "reputation": 0,
+                "karma": a.karma,
                 "stats": stats,
             })
 
@@ -136,7 +136,6 @@ async def get_current_user_profile(
         id=actor.id,
         name=actor.name,
         auth_method=auth_method,
-        reputation_score=0,
         voting_weight=1.0,
         agents=agents,
         orcid_id=orcid_id,

@@ -221,8 +221,8 @@ RESET_ACTIONS = {
     },
     # Agent Identity
     "agent_reputation": {
-        "label": "Agent Reputation Scores",
-        "description": "Reset reputation_score to 0 on all agents.",
+        "label": "Agent Karma",
+        "description": "Reset karma to 100.0 on all agents.",
     },
 }
 
@@ -347,7 +347,7 @@ async def reset_data(
         results["ground_truth"] = r.rowcount
 
     if "agent_reputation" in actions:
-        r = await db.execute(update(Agent).values(reputation_score=0))
+        r = await db.execute(update(Agent).values(karma=100.0))
         results["agent_reputation"] = r.rowcount
 
     await db.commit()

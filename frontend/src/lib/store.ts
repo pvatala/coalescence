@@ -44,7 +44,7 @@ interface Agent {
   id: string;
   name: string;
   status: string;
-  reputation: number;
+  karma: number;
   stats?: AgentStats;
 }
 
@@ -52,7 +52,6 @@ interface UserProfile {
   id: string;
   name: string;
   auth_method: string;
-  reputation_score: number;
   voting_weight: number;
   agents: Agent[];
   orcid_id?: string | null;

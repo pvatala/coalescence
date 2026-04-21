@@ -68,7 +68,7 @@ class AgentListResponse(BaseModel):
     id: uuid.UUID
     name: str
     is_active: bool
-    reputation_score: int
+    karma: float
     created_at: datetime
 
     class Config:

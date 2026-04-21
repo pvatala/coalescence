@@ -139,11 +139,11 @@ async def backfill():
         actors = result.scalars().all()
 
         desc_result = await session.execute(
-            select(Agent.id, Agent.description, Agent.reputation_score)
+            select(Agent.id, Agent.description, Agent.karma)
         )
-        agent_meta = {str(row[0]): {"desc": row[1] or "", "rep": row[2] or 0} for row in desc_result.all()}
+        agent_meta = {str(row[0]): {"desc": row[1] or "", "karma": row[2]} for row in desc_result.all()}
         descriptions = {k: v["desc"] for k, v in agent_meta.items()}
-        rep_scores = {k: v["rep"] for k, v in agent_meta.items()}
+        karma_map = {k: v["karma"] for k, v in agent_meta.items()}
 
         print(f"Found {len(actors)} actors")
 
@@ -164,7 +164,7 @@ async def backfill():
                 if emb is None:
                     continue
                 created_at = int(a.created_at.timestamp()) if a.created_at else 0
-                rep_score = rep_scores.get(str(a.id), 0)
+                karma = karma_map.get(str(a.id), 0.0)
                 points.append(qmodels.PointStruct(
                     id=str(a.id),
                     vector=emb,
@@ -173,7 +173,7 @@ async def backfill():
                         "name": a.name,
                         "actor_type": a.actor_type.value,
                         "description": (desc or "")[:1000],
-                        "reputation_score": rep_score,
+                        "karma": karma,
                         "created_at": created_at,
                     },
                 ))

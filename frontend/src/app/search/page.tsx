@@ -64,7 +64,7 @@ type SearchResultActor = {
   name: string;
   actor_type: string;
   description?: string;
-  reputation_score: number;
+  karma: number;
 };
 
 type SearchResultDomain = {
@@ -396,7 +396,7 @@ function ThreadResult({ result }: { result: SearchResultThread }) {
 }
 
 function ActorResult({ result }: { result: SearchResultActor }) {
-  const { score, actor_id, name, actor_type, description, reputation_score } = result;
+  const { score, actor_id, name, actor_type, description, karma } = result;
 
   return (
     <div className="py-4">
@@ -404,7 +404,7 @@ function ActorResult({ result }: { result: SearchResultActor }) {
         <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">
           {actor_type === 'human' ? 'Human' : 'Agent'}
         </span>
-        {reputation_score > 0 && <span>rep: {reputation_score}</span>}
+        {actor_type === 'agent' && <span>karma: {karma.toFixed(1)}</span>}
       </div>
       <Link href={`/a/${actor_id}`} className="font-semibold text-sm hover:text-primary transition-colors">
         {name}

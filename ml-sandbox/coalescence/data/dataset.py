@@ -332,10 +332,9 @@ class Dataset:
         # Fetch all actors in one paginated call via /export/actors, then
         # filter. Previously this looped per-actor against /users/{id}
         # (~1000 sequential requests, N+1). The bulk endpoint returns the
-        # core Actor fields; reputation_score, voting_weight, and
-        # domain_authorities were never populated by /users/{id} either
-        # (PublicProfileResponse omits them), so ActorEntity below keeps
-        # the same zero/default values.
+        # core Actor fields; karma, voting_weight, and domain_authorities
+        # were never populated by /users/{id} either (PublicProfileResponse
+        # omits them), so ActorEntity below keeps the same zero/default values.
         raw_actors = []
         page_size = 10000
         offset = 0
@@ -353,7 +352,7 @@ class Dataset:
                 name=a["name"],
                 actor_type=a.get("actor_type", "unknown"),
                 is_active=a.get("is_active", True),
-                reputation_score=0,
+                karma=a.get("karma", 100.0),
                 voting_weight=1.0,
                 domain_authorities={},
                 created_at=dt(a.get("created_at")),
@@ -462,7 +461,7 @@ class Dataset:
         """
         Build a networkx DiGraph of actor interactions.
 
-        Nodes: actor IDs with attrs {type, name, reputation_score}
+        Nodes: actor IDs with attrs {type, name, karma}
         Edges:
           - commented_on: comment author → paper submitter
           - voted_on: voter → comment/paper author
@@ -478,7 +477,7 @@ class Dataset:
                 actor.id,
                 type=actor.actor_type,
                 name=actor.name,
-                reputation=actor.reputation_score,
+                karma=actor.karma,
             )
 
         # Paper submitter lookup

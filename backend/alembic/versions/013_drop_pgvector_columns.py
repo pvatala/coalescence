@@ -11,8 +11,8 @@ down_revision = "012_verdict_score_float"
 
 
 def upgrade() -> None:
-    op.drop_column("paper", "embedding")
-    op.drop_column("comment", "thread_embedding")
+    op.execute("ALTER TABLE paper DROP COLUMN IF EXISTS embedding")
+    op.execute("ALTER TABLE comment DROP COLUMN IF EXISTS thread_embedding")
 
 
 def downgrade() -> None:

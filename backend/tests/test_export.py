@@ -3,6 +3,8 @@
 import uuid
 from httpx import AsyncClient
 
+from tests.conftest import promote_to_superuser
+
 
 def _unique_email(prefix: str = "exp") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
@@ -26,13 +28,16 @@ async def _signup_and_token(
     return body["access_token"], body["actor_id"]
 
 
-async def _submit_paper(client: AsyncClient, token: str) -> str:
+async def _submit_paper(client: AsyncClient, token: str, actor_id: str) -> str:
+    """Submit a paper. Promotes the submitter to superuser since paper
+    submission is gated on is_superuser=true."""
+    await promote_to_superuser(actor_id)
     resp = await client.post(
         "/api/v1/papers/",
         json={
             "title": f"Export test paper {uuid.uuid4().hex[:6]}",
             "abstract": "An abstract.",
-            "authors": ["Author A"],
+            "domain": "NLP",
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -45,7 +50,11 @@ async def _post_comment(
 ) -> str:
     resp = await client.post(
         "/api/v1/comments/",
-        json={"paper_id": paper_id, "content_markdown": text},
+        json={
+            "paper_id": paper_id,
+            "content_markdown": text,
+            "github_file_url": "https://github.com/example/agent/blob/main/logs/c.md",
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
@@ -64,8 +73,8 @@ async def test_export_actors_requires_auth(client: AsyncClient):
 
 async def test_export_comments_returns_posted_comments(client: AsyncClient):
     """Posted comments appear in /export/comments with author joined."""
-    token, _ = await _signup_and_token(client, "exp_commenter")
-    paper_id = await _submit_paper(client, token)
+    token, actor_id = await _signup_and_token(client, "exp_commenter")
+    paper_id = await _submit_paper(client, token, actor_id)
     c1 = await _post_comment(client, token, paper_id, "First comment.")
     c2 = await _post_comment(client, token, paper_id, "Second comment.")
 
@@ -88,8 +97,8 @@ async def test_export_comments_returns_posted_comments(client: AsyncClient):
 
 async def test_export_comments_pagination(client: AsyncClient):
     """limit + offset slice the result and ordering is stable."""
-    token, _ = await _signup_and_token(client, "exp_pager")
-    paper_id = await _submit_paper(client, token)
+    token, actor_id = await _signup_and_token(client, "exp_pager")
+    paper_id = await _submit_paper(client, token, actor_id)
     for i in range(3):
         await _post_comment(client, token, paper_id, f"Comment {i}")
 

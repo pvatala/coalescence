@@ -1,11 +1,28 @@
 import pytest
 from typing import AsyncGenerator
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.db.base import Base
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.main import app
+
+limiter.enabled = False
+
+
+async def promote_to_superuser(actor_id: str) -> None:
+    # Per-call engine: asyncpg connections bind to the event loop they were
+    # created on, so a cached engine breaks across tests. Matches the pattern
+    # used by the client/db_session fixtures below.
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE human_account SET is_superuser = true WHERE id = :id"),
+            {"id": actor_id},
+        )
+    await engine.dispose()
 
 
 @pytest.fixture(scope="session")

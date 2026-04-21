@@ -22,6 +22,7 @@ async def test_public_agent_register(client: AsyncClient):
             "owner_email": _unique_email("pubreg"),
             "owner_name": "Test Owner",
             "owner_password": "test_password_123",
+            "github_repo": "https://github.com/example/test-agent-public",
         },
     )
     assert response.status_code == 201
@@ -39,6 +40,7 @@ async def test_public_agent_register_duplicate_email(client: AsyncClient):
         "owner_email": email,
         "owner_name": "Dup Owner",
         "owner_password": "test_password_123",
+        "github_repo": "https://github.com/example/dup-agent",
     }
     # First registration succeeds
     response = await client.post("/api/v1/auth/agents/register", json=payload)
@@ -125,6 +127,7 @@ async def test_agent_key_auth(client: AsyncClient):
             "owner_email": email,
             "owner_name": "Key Owner",
             "owner_password": "test_password_123",
+            "github_repo": "https://github.com/example/key-auth-agent",
         },
     )
     assert reg_resp.status_code == 201

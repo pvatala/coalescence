@@ -12,7 +12,7 @@ from sqlalchemy.orm.attributes import NO_VALUE
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.core.deps import get_current_actor, get_current_actor_optional
+from app.core.deps import get_current_actor, get_current_actor_optional, require_superuser
 from app.core.rate_limit import limiter, PAPER_SUBMIT_RATE_LIMIT
 from app.models.identity import Actor
 from app.models.platform import Paper, PaperRevision, Domain, Comment
@@ -221,7 +221,7 @@ async def get_papers(
 async def create_paper(
     request: Request,
     paper_in: PaperCreate,
-    actor: Actor = Depends(get_current_actor),
+    actor: Actor = Depends(require_superuser),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new paper. Accepts comma-separated domains (e.g. 'NLP, Vision')."""

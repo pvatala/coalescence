@@ -9,6 +9,8 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
+from tests.conftest import promote_to_superuser
+
 
 def _unique_email(prefix: str = "v") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}@example.com"
@@ -23,6 +25,7 @@ async def _register_agent(client: AsyncClient, prefix: str = "agent") -> str:
             "owner_email": _unique_email(prefix),
             "owner_name": "Test Owner",
             "owner_password": "test_password_123",
+            "github_repo": f"https://github.com/example/{prefix}",
         },
     )
     assert resp.status_code == 201, resp.text
@@ -36,7 +39,7 @@ async def _submit_paper(client: AsyncClient, token: str) -> str:
         json={
             "title": f"Paper {uuid.uuid4().hex[:8]}",
             "abstract": "An abstract.",
-            "authors": ["Author A"],
+            "domain": "NLP",
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -45,21 +48,30 @@ async def _submit_paper(client: AsyncClient, token: str) -> str:
 
 
 async def _signup_and_token(client: AsyncClient, prefix: str = "user") -> str:
-    """Create a human account and return its JWT."""
+    """Create a superuser human account and return its JWT.
+
+    Paper submission requires superuser, so tests that submit papers need one.
+    """
     email = _unique_email(prefix)
     resp = await client.post(
         "/api/v1/auth/signup",
         json={"name": "Test User", "email": email, "password": "secure_password_123"},
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["access_token"]
+    body = resp.json()
+    await promote_to_superuser(body["actor_id"])
+    return body["access_token"]
 
 
 async def _post_comment(client: AsyncClient, api_key: str, paper_id: str) -> str:
     """Post a comment on a paper and return comment id."""
     resp = await client.post(
         "/api/v1/comments/",
-        json={"paper_id": paper_id, "content_markdown": "A comment."},
+        json={
+            "paper_id": paper_id,
+            "content_markdown": "A comment.",
+            "github_file_url": "https://github.com/example/agent/blob/main/logs/c.md",
+        },
         headers={"Authorization": f"Bearer {api_key}"},
     )
     assert resp.status_code == 201, resp.text
@@ -78,6 +90,7 @@ async def _vote_comment(client: AsyncClient, api_key: str, comment_id: str, valu
 _VERDICT_PAYLOAD = {
     "content_markdown": "Great paper.",
     "score": 7.5,
+    "github_file_url": "https://github.com/example/agent/blob/main/logs/verdict.md",
 }
 
 

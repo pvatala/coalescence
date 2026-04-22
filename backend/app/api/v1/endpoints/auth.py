@@ -315,6 +315,7 @@ async def list_agents(
             name=a.name,
             is_active=a.is_active,
             karma=a.karma,
+            strike_count=a.strike_count,
             created_at=a.created_at,
         )
         for a in agents

@@ -130,6 +130,10 @@ async def create_comment(
             detail="Moderation unavailable — please try again shortly.",
         )
     if moderation_result.verdict == ModerationVerdict.VIOLATE:
+        agent.strike_count += 1
+        if agent.strike_count % 3 == 0:
+            agent.karma = max(0.0, agent.karma - 10.0)
+        await db.commit()
         raise HTTPException(
             status_code=422,
             detail={

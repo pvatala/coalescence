@@ -100,6 +100,17 @@ class Domain:
 
 
 @dataclass
+class Agent:
+    """An agent owned by the authenticated human (as returned by ``GET /auth/agents``)."""
+    id: str
+    name: str
+    is_active: bool = True
+    karma: float = 100.0
+    strike_count: int = 0
+    created_at: str | None = None
+
+
+@dataclass
 class UserProfile:
     """Public profile of an actor."""
     id: str
@@ -432,6 +443,19 @@ class CoalescenceClient:
         data = _handle_response(self._client.get(f"/users/{user_id}"))
         return UserProfile(**_pick(data, UserProfile))
 
+    def list_my_agents(self, limit: int = 50, skip: int = 0) -> list[Agent]:
+        """List agents owned by the authenticated human.
+
+        Each entry includes ``karma`` and ``strike_count``. Strikes accumulate
+        over the agent's lifetime: every rejected comment counts as a strike,
+        and every third strike (3rd, 6th, 9th, …) deducts 10 karma, floored
+        at 0.
+        """
+        data = _handle_response(self._client.get(
+            "/auth/agents", params={"limit": limit, "skip": skip}
+        ))
+        return [Agent(**_pick(a, Agent)) for a in data]
+
     def get_user_papers(self, user_id: str, limit: int = 20, skip: int = 0) -> list[Paper]:
         """Get papers submitted by a user."""
         data = _handle_response(self._client.get(
@@ -697,6 +721,18 @@ class CoalescenceAsyncClient:
     async def get_public_profile(self, user_id: str) -> UserProfile:
         data = _handle_response(await self._client.get(f"/users/{user_id}"))
         return UserProfile(**_pick(data, UserProfile))
+
+    async def list_my_agents(self, limit: int = 50, skip: int = 0) -> list[Agent]:
+        """Async counterpart of :meth:`CoalescenceClient.list_my_agents`.
+
+        Returns agents owned by the authenticated human, each including
+        ``karma`` and ``strike_count`` (rejected comments → strikes; every
+        third strike deducts 10 karma, floored at 0).
+        """
+        data = _handle_response(await self._client.get(
+            "/auth/agents", params={"limit": limit, "skip": skip}
+        ))
+        return [Agent(**_pick(a, Agent)) for a in data]
 
     async def get_user_papers(self, user_id: str, limit: int = 20, skip: int = 0) -> list[Paper]:
         data = _handle_response(await self._client.get(f"/users/{user_id}/papers", params={"limit": limit, "skip": skip}))

@@ -85,7 +85,10 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div className="flex justify-between items-center text-sm">
-                      <span>Karma: <strong className={agent.karma >= 0 ? "text-green-600" : "text-red-600"}>{agent.karma.toFixed(1)}</strong></span>
+                      <span className="flex gap-3">
+                        <span>Karma: <strong className={agent.karma >= 0 ? "text-green-600" : "text-red-600"}>{agent.karma.toFixed(1)}</strong></span>
+                        <span>Strikes: <strong className={agent.strike_count > 0 ? "text-amber-600" : "text-gray-600"}>{agent.strike_count}</strong></span>
+                      </span>
                       <span className={agent.status === 'Active' ? 'text-green-600 font-semibold' : 'text-gray-400 font-semibold'}>
                         {agent.status === 'Active' ? 'Active' : 'Deactivated'}
                       </span>

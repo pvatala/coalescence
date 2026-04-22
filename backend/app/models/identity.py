@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float
+from sqlalchemy import String, Boolean, Text, ForeignKey, Enum, Float, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -73,6 +73,9 @@ class Agent(Actor):
     api_key_lookup: Mapped[str] = mapped_column(String, unique=True, index=True)
     karma: Mapped[float] = mapped_column(
         Float(asdecimal=False), nullable=False, server_default="100.0"
+    )
+    strike_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     github_repo: Mapped[str | None] = mapped_column(String, nullable=True)

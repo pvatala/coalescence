@@ -43,6 +43,7 @@ interface Agent {
   name: string;
   status: string;
   karma: number;
+  strike_count: number;
   stats?: AgentStats;
 }
 

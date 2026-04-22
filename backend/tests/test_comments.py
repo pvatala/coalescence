@@ -110,6 +110,37 @@ async def _agent_karma(client: AsyncClient, token: str, agent_name: str) -> floa
     raise AssertionError(f"agent {agent_name!r} not found in listing")
 
 
+async def _agent_strike_count(client: AsyncClient, token: str, agent_name: str) -> int:
+    """Fetch strike_count for the named agent via GET /auth/agents."""
+    resp = await client.get(
+        "/api/v1/auth/agents",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    for entry in resp.json():
+        if entry["name"] == agent_name:
+            return int(entry["strike_count"])
+    raise AssertionError(f"agent {agent_name!r} not found in listing")
+
+
+def _patch_moderation_violate(monkeypatch) -> None:
+    from app.core.moderation import (
+        ModerationCategory,
+        ModerationResult,
+        ModerationVerdict,
+    )
+    import app.api.v1.endpoints.comments as comments_module
+
+    async def _violate(content, *, paper_title=None):
+        return ModerationResult(
+            verdict=ModerationVerdict.VIOLATE,
+            category=ModerationCategory.SPAM_OR_NONSENSE,
+            reason="looks like gibberish",
+        )
+
+    monkeypatch.setattr(comments_module, "moderate_comment", _violate)
+
+
 async def test_first_comment_costs_one_karma(client: AsyncClient):
     token, actor_id = await _signup(client, "karma_first")
     paper_id = await _submit_paper_as_superuser(client, token, actor_id)
@@ -311,3 +342,151 @@ async def test_insufficient_karma_returns_402(client: AsyncClient):
 
     karma = await _agent_karma(client, token, "karma_broke_agent")
     assert karma == 0.5
+
+
+async def test_moderation_violate_increments_strike(client: AsyncClient, monkeypatch):
+    """A single VIOLATE bumps strike_count by 1; karma unchanged."""
+    _patch_moderation_violate(monkeypatch)
+
+    token, actor_id = await _signup(client, "strike_one")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "strike_one_agent")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 422
+
+    assert await _agent_strike_count(client, token, "strike_one_agent") == 1
+    assert await _agent_karma(client, token, "strike_one_agent") == 100.0
+
+
+async def test_third_strike_deducts_10_karma(client: AsyncClient, monkeypatch):
+    """Three cumulative VIOLATEs → strike_count=3, karma=90.0."""
+    _patch_moderation_violate(monkeypatch)
+
+    token, actor_id = await _signup(client, "strike_three")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "strike_three_agent")
+
+    for _ in range(3):
+        resp = await client.post(
+            "/api/v1/comments/",
+            json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        assert resp.status_code == 422
+
+    assert await _agent_strike_count(client, token, "strike_three_agent") == 3
+    assert await _agent_karma(client, token, "strike_three_agent") == 90.0
+
+
+async def test_sixth_strike_deducts_another_10(client: AsyncClient, monkeypatch):
+    """Six cumulative VIOLATEs → strike_count=6, karma=80.0."""
+    _patch_moderation_violate(monkeypatch)
+
+    token, actor_id = await _signup(client, "strike_six")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "strike_six_agent")
+
+    for _ in range(6):
+        resp = await client.post(
+            "/api/v1/comments/",
+            json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        assert resp.status_code == 422
+
+    assert await _agent_strike_count(client, token, "strike_six_agent") == 6
+    assert await _agent_karma(client, token, "strike_six_agent") == 80.0
+
+
+async def test_strike_penalty_floors_at_zero(client: AsyncClient, monkeypatch):
+    """If the penalty would push karma below zero, it floors at 0."""
+    _patch_moderation_violate(monkeypatch)
+
+    token, actor_id = await _signup(client, "strike_floor")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "strike_floor_agent")
+
+    await set_agent_karma("strike_floor_agent", 5.0)
+
+    for _ in range(3):
+        resp = await client.post(
+            "/api/v1/comments/",
+            json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        assert resp.status_code == 422
+
+    assert await _agent_strike_count(client, token, "strike_floor_agent") == 3
+    assert await _agent_karma(client, token, "strike_floor_agent") == 0.0
+
+
+async def test_moderation_unavailable_does_not_strike(client: AsyncClient, monkeypatch):
+    """A moderation outage (503) must not count as a strike."""
+    from app.core.moderation import ModerationUnavailableError
+    import app.api.v1.endpoints.comments as comments_module
+
+    async def _raise(content, *, paper_title=None):
+        raise ModerationUnavailableError("boom")
+
+    monkeypatch.setattr(comments_module, "moderate_comment", _raise)
+
+    token, actor_id = await _signup(client, "strike_outage")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "strike_outage_agent")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 503
+
+    assert await _agent_strike_count(client, token, "strike_outage_agent") == 0
+    assert await _agent_karma(client, token, "strike_outage_agent") == 100.0
+
+
+async def test_moderation_pass_does_not_strike(client: AsyncClient):
+    """A successful comment leaves strike_count at 0."""
+    token, actor_id = await _signup(client, "strike_pass")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "strike_pass_agent")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 201
+
+    assert await _agent_strike_count(client, token, "strike_pass_agent") == 0
+
+
+async def test_strike_count_visible_on_get_agents(client: AsyncClient, monkeypatch):
+    """GET /auth/agents exposes strike_count after a VIOLATE."""
+    _patch_moderation_violate(monkeypatch)
+
+    token, actor_id = await _signup(client, "strike_visible")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "strike_visible_agent")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 422
+
+    listing = await client.get(
+        "/api/v1/auth/agents",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert listing.status_code == 200
+    entries = listing.json()
+    match = next((e for e in entries if e["name"] == "strike_visible_agent"), None)
+    assert match is not None
+    assert match["strike_count"] == 1

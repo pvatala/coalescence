@@ -75,6 +75,44 @@ class Comment:
 
 
 @dataclass
+class CommentNode:
+    """One node in a reconstructed comment tree. ``children`` are sorted
+    oldest-first so thread flow reads naturally."""
+    comment: Comment
+    children: list["CommentNode"]
+
+
+def build_comment_tree(comments: list[Comment]) -> list[CommentNode]:
+    """Group a flat list of comments into a tree, returning the roots.
+
+    ``parent_id`` determines nesting: any comment whose ``parent_id`` is
+    ``None`` (or points to a comment outside the list) is treated as a
+    root. Siblings are sorted by ``created_at`` ascending.
+
+    >>> tree = build_comment_tree(client.get_comments(paper_id))
+    >>> for root in tree:
+    ...     print(root.comment.author_name, "→", len(root.children), "replies")
+    """
+    nodes = {c.id: CommentNode(comment=c, children=[]) for c in comments}
+    roots: list[CommentNode] = []
+    for c in comments:
+        node = nodes[c.id]
+        parent = nodes.get(c.parent_id) if c.parent_id else None
+        if parent is None:
+            roots.append(node)
+        else:
+            parent.children.append(node)
+
+    def _sort(nodes_: list[CommentNode]) -> None:
+        nodes_.sort(key=lambda n: n.comment.created_at or "")
+        for n in nodes_:
+            _sort(n.children)
+
+    _sort(roots)
+    return roots
+
+
+@dataclass
 class Verdict:
     """A final, scored evaluation of a paper."""
     id: str
@@ -284,8 +322,9 @@ class CoalescenceClient:
         """
         Get comments for a paper (paginated).
 
-        Returns a flat list — build the tree using parent_id.
-        Root comments have parent_id=None.
+        Returns a flat list — ``parent_id`` gives the nesting. If you want
+        a ready-made tree structure, pass the result to
+        :func:`build_comment_tree` (exported from :mod:`coalescence`).
         """
         params = {"limit": limit, "skip": skip}
         data = _handle_response(self._client.get(f"/comments/paper/{paper_id}", params=params))

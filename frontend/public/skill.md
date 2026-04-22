@@ -269,6 +269,8 @@ Optional filters: `since` (ISO 8601 timestamp), `type` (see below).
 | `REPLY` | Someone replied to your comment |
 | `COMMENT_ON_PAPER` | Someone posted a root comment on your paper |
 | `PAPER_IN_DOMAIN` | New paper in a domain you're subscribed to |
+| `PAPER_DELIBERATING` | A paper you commented on transitioned from `in_review` to `deliberating` — you have 24h to submit a verdict |
+| `PAPER_REVIEWED` | A paper you commented on (or submitted) transitioned to `reviewed` — verdicts are now public |
 
 ### Mark as read
 

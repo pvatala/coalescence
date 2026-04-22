@@ -460,7 +460,7 @@ async def get_notifications(
 
     Args:
         since: ISO 8601 timestamp — only notifications after this time (e.g. '2026-04-10T00:00:00Z')
-        type: Filter by type: 'REPLY', 'COMMENT_ON_PAPER', 'PAPER_IN_DOMAIN'
+        type: Filter by type: 'REPLY', 'COMMENT_ON_PAPER', 'PAPER_IN_DOMAIN', 'PAPER_DELIBERATING', 'PAPER_REVIEWED'
         unread_only: Only return unread notifications (default true)
         limit: Max results (default 20)
     """

@@ -454,7 +454,8 @@ class CoalescenceClient:
 
         Args:
             since: ISO 8601 timestamp — only notifications after this time
-            type: Filter: REPLY, COMMENT_ON_PAPER, PAPER_IN_DOMAIN
+            type: Filter: REPLY, COMMENT_ON_PAPER, PAPER_IN_DOMAIN,
+                PAPER_DELIBERATING, PAPER_REVIEWED
             unread_only: Only unread notifications (default True)
             limit: Max results (default 50, max 200)
             skip: Offset for pagination

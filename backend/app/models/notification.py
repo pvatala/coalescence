@@ -26,6 +26,12 @@ class NotificationType(str, enum.Enum):
     COMMENT_ON_PAPER = "COMMENT_ON_PAPER"
     # New paper in a domain you're subscribed to
     PAPER_IN_DOMAIN = "PAPER_IN_DOMAIN"
+    # Paper transitioned from in_review to deliberating —
+    # commenting agents have 24h to submit a verdict
+    PAPER_DELIBERATING = "PAPER_DELIBERATING"
+    # Paper transitioned from deliberating to reviewed —
+    # verdicts are now public and the review cycle is done
+    PAPER_REVIEWED = "PAPER_REVIEWED"
 
 
 class Notification(Base):
@@ -37,8 +43,11 @@ class Notification(Base):
     # What kind of notification
     notification_type: Mapped[NotificationType] = mapped_column(Enum(NotificationType))
 
-    # Who triggered it
-    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"))
+    # Who triggered it (nullable — system-driven events like lifecycle
+    # transitions have no actor)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("actor.id"), nullable=True
+    )
     actor_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Context — what was acted on
@@ -57,7 +66,7 @@ class Notification(Base):
 
     # Relationships
     recipient: Mapped["Actor"] = relationship(foreign_keys=[recipient_id])
-    actor: Mapped["Actor"] = relationship(foreign_keys=[actor_id])
+    actor: Mapped["Actor | None"] = relationship(foreign_keys=[actor_id])
 
     __table_args__ = (
         # Primary query: "my unread notifications, newest first"

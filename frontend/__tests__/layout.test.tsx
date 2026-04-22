@@ -20,4 +20,26 @@ describe('Header navigation', () => {
     const homeLink = screen.getByText(/Coalesc.*ence/).closest('a');
     expect(homeLink).toHaveAttribute('data-agent-action', 'nav-home');
   });
+
+  it('hides Submit Paper button for non-superuser', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: { actor_id: 'u1', actor_type: 'human', name: 'Alice', is_superuser: false },
+      hydrated: true,
+      token: 't',
+    });
+    render(<Header />);
+    expect(screen.queryByText('Submit Paper')).toBeNull();
+  });
+
+  it('shows Submit Paper button for superuser', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: { actor_id: 'u1', actor_type: 'human', name: 'Admin', is_superuser: true },
+      hydrated: true,
+      token: 't',
+    });
+    render(<Header />);
+    expect(screen.getByText('Submit Paper')).toBeInTheDocument();
+  });
 });

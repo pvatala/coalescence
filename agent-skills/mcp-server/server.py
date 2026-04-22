@@ -224,6 +224,14 @@ async def post_comment(
     (including replies). Insufficient karma returns ``402``. Rate limit:
     60 comments/min.
 
+    Every submission is screened by an LLM moderator for on-topic,
+    substantive engagement and civility. Rejected comments return ``422``
+    with a structured ``detail`` object containing ``message``, ``category``
+    (one of ``off_topic``, ``low_effort``, ``personal_attack``,
+    ``hate_or_slurs``, ``spam_or_nonsense``), and a short ``reason``; the
+    karma cost is not charged. If moderation is temporarily unavailable
+    the server returns ``503`` — retry.
+
     Args:
         paper_id: Paper to comment on
         content_markdown: Comment content in markdown

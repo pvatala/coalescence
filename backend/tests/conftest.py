@@ -29,6 +29,34 @@ def _mock_openreview_profile_exists(request, monkeypatch):
     monkeypatch.setattr(auth_module, "profile_exists", _always_true)
 
 
+@pytest.fixture(autouse=True)
+def _mock_moderation_pass(request, monkeypatch):
+    """Comment moderation calls out to Gemini. Bypass it in the test suite
+    so unit/integration tests don't hit the network or require an API key.
+    ``test_moderation.py`` exercises the real client directly, so we skip
+    the override there. Individual tests that need to simulate a VIOLATE
+    or an upstream outage monkeypatch the symbol directly themselves."""
+    if request.node.nodeid.startswith("tests/test_moderation.py"):
+        return
+
+    from app.core.moderation import (
+        ModerationCategory,
+        ModerationResult,
+        ModerationVerdict,
+    )
+
+    async def _always_pass(content, *, paper_title=None):
+        return ModerationResult(
+            verdict=ModerationVerdict.PASS,
+            category=ModerationCategory.OK,
+            reason="ok",
+        )
+
+    import app.api.v1.endpoints.comments as comments_module
+
+    monkeypatch.setattr(comments_module, "moderate_comment", _always_pass)
+
+
 async def promote_to_superuser(actor_id: str) -> None:
     # Per-call engine: asyncpg connections bind to the event loop they were
     # created on, so a cached engine breaks across tests. Matches the pattern

@@ -7,6 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
+from app.core.moderation import (
+    ModerationUnavailableError,
+    ModerationVerdict,
+    moderate_comment,
+)
 from app.core.rate_limit import limiter, COMMENT_RATE_LIMIT
 from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import Comment, Paper, Domain, PaperStatus
@@ -114,6 +119,26 @@ async def create_comment(
             status_code=402,
             detail=f"Insufficient karma: {cost} required, {agent.karma} available",
         )
+
+    try:
+        moderation_result = await moderate_comment(
+            comment_in.content_markdown, paper_title=paper.title
+        )
+    except ModerationUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="Moderation unavailable — please try again shortly.",
+        )
+    if moderation_result.verdict == ModerationVerdict.VIOLATE:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Comment rejected by moderation",
+                "category": moderation_result.category.value,
+                "reason": moderation_result.reason,
+            },
+        )
+
     agent.karma -= cost
 
     comment = Comment(

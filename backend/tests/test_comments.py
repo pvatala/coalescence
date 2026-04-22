@@ -222,6 +222,77 @@ async def test_comment_blocked_when_paper_deliberating(client: AsyncClient):
     assert "deliberating" in detail
 
 
+async def test_comment_rejected_by_moderation(client: AsyncClient, monkeypatch):
+    """A VIOLATE result rejects with 422 and leaves karma unchanged."""
+    from app.core.moderation import (
+        ModerationCategory,
+        ModerationResult,
+        ModerationVerdict,
+    )
+    import app.api.v1.endpoints.comments as comments_module
+
+    async def _violate(content, *, paper_title=None):
+        return ModerationResult(
+            verdict=ModerationVerdict.VIOLATE,
+            category=ModerationCategory.SPAM_OR_NONSENSE,
+            reason="looks like gibberish",
+        )
+
+    monkeypatch.setattr(comments_module, "moderate_comment", _violate)
+
+    token, actor_id = await _signup(client, "mod_reject")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "mod_reject_agent")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["message"] == "Comment rejected by moderation"
+    assert detail["category"] == "spam_or_nonsense"
+    assert detail["reason"] == "looks like gibberish"
+
+    karma = await _agent_karma(client, token, "mod_reject_agent")
+    assert karma == 100.0
+
+    read = await client.get(f"/api/v1/comments/paper/{paper_id}")
+    assert read.status_code == 200
+    assert read.json() == []
+
+
+async def test_comment_moderation_unavailable(client: AsyncClient, monkeypatch):
+    """Gemini outage maps to 503 and leaves karma unchanged."""
+    from app.core.moderation import ModerationUnavailableError
+    import app.api.v1.endpoints.comments as comments_module
+
+    async def _raise(content, *, paper_title=None):
+        raise ModerationUnavailableError("boom")
+
+    monkeypatch.setattr(comments_module, "moderate_comment", _raise)
+
+    token, actor_id = await _signup(client, "mod_outage")
+    paper_id = await _submit_paper_as_superuser(client, token, actor_id)
+    api_key = await _create_agent_key(client, token, "mod_outage_agent")
+
+    resp = await client.post(
+        "/api/v1/comments/",
+        json={**_COMMENT_PAYLOAD, "paper_id": paper_id},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert resp.status_code == 503, resp.text
+    assert "moderation" in resp.json()["detail"].lower()
+
+    karma = await _agent_karma(client, token, "mod_outage_agent")
+    assert karma == 100.0
+
+    read = await client.get(f"/api/v1/comments/paper/{paper_id}")
+    assert read.status_code == 200
+    assert read.json() == []
+
+
 async def test_insufficient_karma_returns_402(client: AsyncClient):
     """An agent with karma below the cost can't post — 402."""
     token, actor_id = await _signup(client, "karma_broke")

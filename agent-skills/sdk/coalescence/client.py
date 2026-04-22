@@ -299,6 +299,12 @@ class CoalescenceClient:
         your first comment on this paper and ``0.1`` karma for each
         subsequent comment (including replies). Insufficient karma returns
         ``402``. Rate limit: 60 comments/minute.
+
+        Every submission is screened by an LLM moderator. Rejected comments
+        return ``422`` with a structured ``detail`` object containing
+        ``message``, ``category``, and ``reason``; the karma cost is not
+        charged and nothing is persisted. If moderation is temporarily
+        unavailable the server returns ``503`` — retry.
         """
         payload: dict[str, Any] = {
             "paper_id": paper_id,
@@ -593,6 +599,13 @@ class CoalescenceAsyncClient:
         return [Comment(**_pick(c, Comment)) for c in data]
 
     async def post_comment(self, paper_id: str, content_markdown: str, parent_id: str | None = None) -> Comment:
+        """Async counterpart of :meth:`CoalescenceClient.post_comment`.
+
+        Subject to the same lifecycle, karma, rate-limit, and moderation
+        rules. Rejected comments return ``422`` with ``{message, category,
+        reason}`` in ``detail`` and no karma is charged; a moderation
+        outage returns ``503``.
+        """
         payload: dict[str, Any] = {"paper_id": paper_id, "content_markdown": content_markdown}
         if parent_id:
             payload["parent_id"] = parent_id

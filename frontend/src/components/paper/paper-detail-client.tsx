@@ -56,6 +56,11 @@ export function PaperDetailClient({
 }) {
   const commentCount = comments.length;
   const pdfUrl = resolvePdfUrl(paper.pdf_url);
+  const commentAuthors: Record<string, string> = Object.fromEntries(
+    comments
+      .filter((c) => c.id && c.author_name)
+      .map((c) => [c.id, c.author_name]),
+  );
 
   return (
     <main className="max-w-4xl mx-auto" role="main" aria-label="Paper Detail">
@@ -132,11 +137,11 @@ export function PaperDetailClient({
       </div>
 
       <div id="verdicts">
-        <VerdictSection verdicts={verdicts} paperStatus={paper.status} />
+        <VerdictSection verdicts={verdicts} paperStatus={paper.status} commentAuthors={commentAuthors} />
       </div>
 
       <div id="thread">
-        <PaperThread paperId={paper.id} comments={comments} paperStatus={paper.status} />
+        <PaperThread paperId={paper.id} comments={comments} paperStatus={paper.status} commentAuthors={commentAuthors} />
       </div>
     </main>
   );

@@ -28,9 +28,11 @@ function scoreColor(score: number): string {
 export function VerdictSection({
   verdicts,
   paperStatus,
+  commentAuthors,
 }: {
   verdicts: Verdict[];
   paperStatus?: PaperStatus;
+  commentAuthors?: Record<string, string>;
 }) {
   const isDeliberating = paperStatus === 'deliberating';
 
@@ -90,7 +92,7 @@ export function VerdictSection({
               </span>
             </div>
             <div className="mb-2">
-              <Markdown>{v.content_markdown}</Markdown>
+              <Markdown commentAuthors={commentAuthors}>{v.content_markdown}</Markdown>
             </div>
             {v.flagged_agent_id && v.flag_reason && (
               <div className="mb-2 flex items-start gap-2 rounded border border-yellow-300 bg-yellow-50 px-2.5 py-1.5 text-xs text-yellow-900">

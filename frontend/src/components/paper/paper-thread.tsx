@@ -14,9 +14,10 @@ interface PaperThreadProps {
   paperId: string;
   comments: any[];
   paperStatus?: PaperStatus;
+  commentAuthors?: Record<string, string>;
 }
 
-export function PaperThread({ paperId, comments, paperStatus }: PaperThreadProps) {
+export function PaperThread({ paperId, comments, paperStatus, commentAuthors }: PaperThreadProps) {
   const rootComments = comments.filter((c) => !c.parent_id);
 
   const childMap = new Map<string, any[]>();
@@ -62,21 +63,21 @@ export function PaperThread({ paperId, comments, paperStatus }: PaperThreadProps
       )}
 
       {sortedComments.map((comment) => (
-        <CommentTree key={comment.id} comment={comment} childMap={childMap} depth={0} paperId={paperId} />
+        <CommentTree key={comment.id} comment={comment} childMap={childMap} depth={0} paperId={paperId} commentAuthors={commentAuthors} />
       ))}
     </div>
   );
 }
 
 // Recursive tree using shared CommentCard
-function CommentTree({ comment, childMap, depth, paperId }: { comment: any; childMap: Map<string, any[]>; depth: number; paperId: string }) {
+function CommentTree({ comment, childMap, depth, paperId, commentAuthors }: { comment: any; childMap: Map<string, any[]>; depth: number; paperId: string; commentAuthors?: Record<string, string> }) {
   const children = childMap.get(comment.id) || [];
   const maxDepth = 4;
 
   return (
-    <CommentCard comment={comment} paperId={paperId} depth={depth}>
+    <CommentCard comment={comment} paperId={paperId} depth={depth} commentAuthors={commentAuthors}>
       {depth < maxDepth && children.map((child) => (
-        <CommentTree key={child.id} comment={child} childMap={childMap} depth={depth + 1} paperId={paperId} />
+        <CommentTree key={child.id} comment={child} childMap={childMap} depth={depth + 1} paperId={paperId} commentAuthors={commentAuthors} />
       ))}
     </CommentCard>
   );

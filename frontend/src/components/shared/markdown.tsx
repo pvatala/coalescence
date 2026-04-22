@@ -3,9 +3,12 @@
  * Used for reviews, comments, and any user-generated markdown.
  *
  * Also intercepts inline `[[comment:<uuid>]]` citation tokens and
- * renders them as anchors pointing to `#comment-<uuid>`. Malformed
- * tokens fall through as plain text. This matches the server-side
- * parser in `backend/app/core/verdict_citations.py`.
+ * renders them as anchors pointing to `#comment-<uuid>`. When a
+ * `commentAuthors` lookup is provided and the UUID resolves to a
+ * known author, the link text reads ``@AuthorName``; otherwise it
+ * falls back to a short `@<8-char-uuid>`. Malformed tokens fall
+ * through as plain text. This matches the server-side parser in
+ * ``backend/app/core/verdict_citations.py``.
  *
  * Limitation: citations are rendered as anchors only when they appear
  * as direct text children of `<p>` or `<li>`. Tokens inside headings,
@@ -24,12 +27,18 @@ interface MarkdownProps {
   children: string;
   className?: string;
   compact?: boolean;
+  /** Map of comment UUID → author display name. Used to turn `[[comment:<uuid>]]`
+   * tokens into `@AuthorName` anchors. Missing keys fall back to `@<short-uuid>`. */
+  commentAuthors?: Record<string, string>;
 }
 
 const COMMENT_CITATION_RE =
   /\[\[comment:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\]\]/g;
 
-function renderCitations(text: string): React.ReactNode {
+function renderCitations(
+  text: string,
+  commentAuthors: Record<string, string> | undefined,
+): React.ReactNode {
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   COMMENT_CITATION_RE.lastIndex = 0;
@@ -39,13 +48,15 @@ function renderCitations(text: string): React.ReactNode {
       nodes.push(text.slice(lastIndex, match.index));
     }
     const commentId = match[1].toLowerCase();
+    const author = commentAuthors?.[commentId];
+    const label = author ? `@${author}` : `@${commentId.slice(0, 8)}`;
     nodes.push(
       <a
         key={match.index}
         href={`#comment-${commentId}`}
         className="text-primary hover:underline"
       >
-        [[comment:{commentId}]]
+        {label}
       </a>,
     );
     lastIndex = match.index + match[0].length;
@@ -56,7 +67,12 @@ function renderCitations(text: string): React.ReactNode {
   return nodes.length === 1 ? nodes[0] : nodes;
 }
 
-export function Markdown({ children, className, compact = false }: MarkdownProps) {
+export function Markdown({
+  children,
+  className,
+  compact = false,
+  commentAuthors,
+}: MarkdownProps) {
   return (
     <div className={cn(
       "prose prose-sm max-w-none",
@@ -70,10 +86,10 @@ export function Markdown({ children, className, compact = false }: MarkdownProps
         rehypePlugins={[rehypeKatex]}
         components={{
           p: ({ children, ...props }) => (
-            <p {...props}>{renderChildrenWithCitations(children)}</p>
+            <p {...props}>{renderChildrenWithCitations(children, commentAuthors)}</p>
           ),
           li: ({ children, ...props }) => (
-            <li {...props}>{renderChildrenWithCitations(children)}</li>
+            <li {...props}>{renderChildrenWithCitations(children, commentAuthors)}</li>
           ),
         }}
       >
@@ -83,10 +99,13 @@ export function Markdown({ children, className, compact = false }: MarkdownProps
   );
 }
 
-function renderChildrenWithCitations(children: React.ReactNode): React.ReactNode {
+function renderChildrenWithCitations(
+  children: React.ReactNode,
+  commentAuthors: Record<string, string> | undefined,
+): React.ReactNode {
   return React.Children.map(children, (child) => {
     if (typeof child === 'string') {
-      return renderCitations(child);
+      return renderCitations(child, commentAuthors);
     }
     return child;
   });

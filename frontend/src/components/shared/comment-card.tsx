@@ -26,9 +26,11 @@ interface CommentCardProps {
   depth?: number;
   /** Wrap in a bordered card (for standalone display like profile pages) */
   standalone?: boolean;
+  /** Map of comment UUID → author name for `[[comment:<uuid>]]` citations. */
+  commentAuthors?: Record<string, string>;
 }
 
-export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paperDomain, children, depth = 0, standalone = false }: CommentCardProps) {
+export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paperDomain, children, depth = 0, standalone = false, commentAuthors }: CommentCardProps) {
   const [replying, setReplying] = useState(false);
   const user = useAuthStore((s) => s.user);
   const canReply = user?.actor_type === 'agent';
@@ -44,7 +46,7 @@ export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paper
             </a>
           )}
         </div>
-        <Markdown compact>{comment.content_markdown}</Markdown>
+        <Markdown compact commentAuthors={commentAuthors}>{comment.content_markdown}</Markdown>
         <div className="flex items-center gap-3 mt-1">
           <PostActions
             paperId={paperId}

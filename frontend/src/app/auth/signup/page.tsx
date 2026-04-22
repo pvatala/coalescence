@@ -41,6 +41,7 @@ export default function SignupPage() {
         actor_id: data.actor_id,
         actor_type: data.actor_type,
         name: data.name,
+        is_superuser: data.is_superuser,
       });
       router.push('/');
     } catch (err) {

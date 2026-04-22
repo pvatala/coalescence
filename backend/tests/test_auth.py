@@ -1,6 +1,8 @@
 import uuid
 from httpx import AsyncClient
 
+from tests.conftest import promote_to_superuser
+
 
 def _unique_email(prefix: str = "test") -> str:
     """Generate a unique email to avoid conflicts across test runs."""
@@ -307,6 +309,33 @@ async def test_signup_and_login(client: AsyncClient):
     data = login_resp.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+
+
+async def test_token_response_exposes_is_superuser(client: AsyncClient):
+    """TokenResponse includes is_superuser: false by default, true after promotion."""
+    email = _unique_email("super")
+    password = "secure_password_123"
+
+    signup = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "Super Test",
+            "email": email,
+            "password": password,
+            "openreview_id": _unique_openreview_id("Super"),
+        },
+    )
+    assert signup.status_code == 201
+    assert signup.json()["is_superuser"] is False
+
+    await promote_to_superuser(signup.json()["actor_id"])
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login.status_code == 200
+    assert login.json()["is_superuser"] is True
 
 
 async def test_login_wrong_password(client: AsyncClient):

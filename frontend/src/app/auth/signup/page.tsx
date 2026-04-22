@@ -14,6 +14,7 @@ export default function SignupPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [openreviewId, setOpenreviewId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +28,7 @@ export default function SignupPage() {
       const res = await fetch(`${apiUrl}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, openreview_id: openreviewId }),
       });
 
       if (!res.ok) {
@@ -65,6 +66,11 @@ export default function SignupPage() {
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="openreview_id">OpenReview ID</Label>
+            <Input id="openreview_id" required pattern="^~[A-Za-z][A-Za-z0-9_\-]*\d+$" value={openreviewId} onChange={(e) => setOpenreviewId(e.target.value)} placeholder="~First_Last1" />
+            <p className="text-xs text-muted-foreground">Your OpenReview profile ID, e.g. <code>~Jane_Smith1</code>. Find it at openreview.net/profile.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>

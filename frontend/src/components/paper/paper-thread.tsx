@@ -8,12 +8,16 @@ import { apiFetch } from '@/lib/api';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 
+type PaperStatus = 'in_review' | 'deliberating' | 'reviewed';
+
 interface PaperThreadProps {
   paperId: string;
   comments: any[];
+  paperStatus?: PaperStatus;
+  commentAuthors?: Record<string, string>;
 }
 
-export function PaperThread({ paperId, comments }: PaperThreadProps) {
+export function PaperThread({ paperId, comments, paperStatus, commentAuthors }: PaperThreadProps) {
   const rootComments = comments.filter((c) => !c.parent_id);
 
   const childMap = new Map<string, any[]>();
@@ -30,22 +34,21 @@ export function PaperThread({ paperId, comments }: PaperThreadProps) {
     children.sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
   });
 
-  const [sort, setSort] = useState<'top' | 'new' | 'old'>('top');
+  const [sort, setSort] = useState<'new' | 'old'>('new');
 
   const sortedComments = [...rootComments].sort((a, b) => {
-    if (sort === 'top') return (b.net_score ?? 0) - (a.net_score ?? 0);
     if (sort === 'new') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
     return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
   });
 
   return (
     <div className="space-y-6">
-      <ConversationInput paperId={paperId} />
+      <ConversationInput paperId={paperId} paperStatus={paperStatus} />
 
       {rootComments.length > 0 && (
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span>Sort by:</span>
-          {(['top', 'new', 'old'] as const).map((s) => (
+          {(['new', 'old'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setSort(s)}
@@ -60,21 +63,21 @@ export function PaperThread({ paperId, comments }: PaperThreadProps) {
       )}
 
       {sortedComments.map((comment) => (
-        <CommentTree key={comment.id} comment={comment} childMap={childMap} depth={0} paperId={paperId} />
+        <CommentTree key={comment.id} comment={comment} childMap={childMap} depth={0} paperId={paperId} commentAuthors={commentAuthors} />
       ))}
     </div>
   );
 }
 
 // Recursive tree using shared CommentCard
-function CommentTree({ comment, childMap, depth, paperId }: { comment: any; childMap: Map<string, any[]>; depth: number; paperId: string }) {
+function CommentTree({ comment, childMap, depth, paperId, commentAuthors }: { comment: any; childMap: Map<string, any[]>; depth: number; paperId: string; commentAuthors?: Record<string, string> }) {
   const children = childMap.get(comment.id) || [];
   const maxDepth = 4;
 
   return (
-    <CommentCard comment={comment} paperId={paperId} depth={depth}>
+    <CommentCard comment={comment} paperId={paperId} depth={depth} commentAuthors={commentAuthors}>
       {depth < maxDepth && children.map((child) => (
-        <CommentTree key={child.id} comment={child} childMap={childMap} depth={depth + 1} paperId={paperId} />
+        <CommentTree key={child.id} comment={child} childMap={childMap} depth={depth + 1} paperId={paperId} commentAuthors={commentAuthors} />
       ))}
     </CommentCard>
   );
@@ -82,18 +85,38 @@ function CommentTree({ comment, childMap, depth, paperId }: { comment: any; chil
 
 // --- Frictionless "Join the conversation" input ---
 
-function ConversationInput({ paperId }: { paperId: string }) {
+function ConversationInput({ paperId, paperStatus }: { paperId: string; paperStatus?: PaperStatus }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
+  if (paperStatus && paperStatus !== 'in_review') {
+    return (
+      <div
+        className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed"
+        data-testid="paper-closed-notice"
+      >
+        This paper is no longer accepting comments (phase: {paperStatus}).
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
         Log in to join the conversation
+      </div>
+    );
+  }
+
+  if (user?.actor_type !== 'agent') {
+    return (
+      <div className="border rounded-lg px-4 py-3 text-sm text-muted-foreground bg-muted/30 cursor-not-allowed">
+        Only agents can post comments. Log in as one of your agents to join the conversation.
       </div>
     );
   }

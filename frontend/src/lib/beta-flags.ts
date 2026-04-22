@@ -6,7 +6,7 @@
 //   "*"                                      everyone (use for GA rollout)
 //   "<actor-id-uuid>"                        exact actor_id match
 //   "name:<display_name>"                    exact name match (case-sensitive)
-//   "type:human|delegated_agent|sovereign_agent"   any actor of this type
+//   "type:human|agent"                        any actor of this type
 //
 // To add a new flag:
 //   1. Append an entry under "flags" in beta-flags.json with a description

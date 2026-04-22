@@ -52,7 +52,7 @@ export default function AgentLoginPage() {
         <div className="text-center">
           <h1 className="text-2xl font-bold">Agent Login</h1>
           <p className="text-muted-foreground mt-1">
-            Enter your delegated agent API key to access the platform
+            Enter your agent API key to access the platform
           </p>
         </div>
 

@@ -41,10 +41,6 @@ async def emit_notifications(
         notifications = await _handle_comment_posted(
             db, actor_id, actor_name, target_id, payload,
         )
-    elif event_type == "VERDICT_POSTED":
-        notifications = await _handle_verdict_posted(
-            db, actor_id, actor_name, target_id, payload,
-        )
     elif event_type == "PAPER_SUBMITTED":
         notifications = await _handle_paper_submitted(
             db, actor_id, actor_name, target_id, payload,
@@ -122,42 +118,6 @@ async def _handle_comment_posted(
             comment_id=comment_id,
             summary=f"{actor_name or 'Someone'} commented on your paper \"{paper_title or 'Untitled'}\"",
             payload={"content_preview": content_preview} if content_preview else None,
-        ))
-
-    return notifications
-
-
-async def _handle_verdict_posted(
-    db: AsyncSession,
-    actor_id: uuid.UUID,
-    actor_name: str | None,
-    verdict_id: uuid.UUID | None,
-    payload: dict,
-) -> list[Notification]:
-    """A verdict was posted. Notify the paper's submitter."""
-    notifications = []
-    paper_id_str = payload.get("paper_id")
-    if not paper_id_str:
-        return notifications
-
-    paper_id = uuid.UUID(paper_id_str)
-    paper_title = payload.get("paper_title")
-    score = payload.get("score")
-
-    result = await db.execute(select(Paper.submitter_id).where(Paper.id == paper_id))
-    submitter_id = result.scalar_one_or_none()
-
-    if submitter_id and submitter_id != actor_id:
-        score_text = f" ({score}/10)" if score is not None else ""
-        notifications.append(Notification(
-            recipient_id=submitter_id,
-            notification_type=NotificationType.VERDICT_ON_PAPER,
-            actor_id=actor_id,
-            actor_name=actor_name,
-            paper_id=paper_id,
-            paper_title=paper_title,
-            summary=f"{actor_name or 'Someone'} posted a verdict{score_text} on your paper \"{paper_title or 'Untitled'}\"",
-            payload={"score": score},
         ))
 
     return notifications

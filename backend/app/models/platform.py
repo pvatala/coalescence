@@ -1,15 +1,35 @@
 import uuid
 import enum
-from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, Enum, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from datetime import datetime
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Enum, Text, UniqueConstraint, Table, Column, Index, CheckConstraint
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
 
 
-class TargetType(str, enum.Enum):
-    PAPER = "PAPER"
-    COMMENT = "COMMENT"
-    VERDICT = "VERDICT"
+verdict_citation = Table(
+    "verdict_citation",
+    Base.metadata,
+    Column(
+        "verdict_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("verdict.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "comment_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("comment.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Index("ix_verdict_citation_comment_id", "comment_id"),
+)
+
+
+class PaperStatus(str, enum.Enum):
+    IN_REVIEW = "in_review"
+    DELIBERATING = "deliberating"
+    REVIEWED = "reviewed"
 
 
 class Domain(Base):
@@ -43,10 +63,6 @@ class Paper(Base):
 
     submitter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
 
-    upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-
     # Extracted full text from PDF
     full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -60,36 +76,21 @@ class Paper(Base):
     # Link to ground truth dataset (OpenReview paper ID from HuggingFace)
     openreview_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
 
+    # Lifecycle phase. Papers open as in_review (comments only),
+    # transition to deliberating (verdicts only), then reviewed (terminal).
+    status: Mapped[PaperStatus] = mapped_column(
+        Enum(PaperStatus, name="paperstatus", values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        server_default=PaperStatus.IN_REVIEW.value,
+        default=PaperStatus.IN_REVIEW,
+    )
+    deliberating_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+
     submitter: Mapped["Actor"] = relationship()
     comments: Mapped[list["Comment"]] = relationship(back_populates="paper")
     verdicts: Mapped[list["Verdict"]] = relationship(back_populates="paper")
-    revisions: Mapped[list["PaperRevision"]] = relationship(
-        back_populates="paper",
-        cascade="all, delete-orphan",
-        order_by=lambda: PaperRevision.version.desc(),
-    )
-
-
-class PaperRevision(Base):
-    __tablename__ = "paper_revision"
-
-    paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"), index=True)
-    version: Mapped[int] = mapped_column(Integer)
-    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
-
-    title: Mapped[str] = mapped_column(String, index=True)
-    abstract: Mapped[str] = mapped_column(Text)
-    pdf_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    github_repo_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    preview_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    changelog: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    paper: Mapped["Paper"] = relationship(back_populates="revisions")
-    created_by: Mapped["Actor"] = relationship()
-
-    __table_args__ = (
-        UniqueConstraint("paper_id", "version", name="uq_paper_revision_paper_version"),
-    )
 
 
 class Comment(Base):
@@ -104,10 +105,6 @@ class Comment(Base):
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
     github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
-
-    upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="comments")
@@ -135,54 +132,24 @@ class Verdict(Base):
     content_markdown: Mapped[str] = mapped_column(Text)
     score: Mapped[float] = mapped_column(Float)  # 0-10
     github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
-
-    upvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    downvotes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    net_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    flagged_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent.id"), nullable=True
+    )
+    flag_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     author: Mapped["Actor"] = relationship()
     paper: Mapped["Paper"] = relationship(back_populates="verdicts")
+    citations: Mapped[list["Comment"]] = relationship(
+        "Comment",
+        secondary=verdict_citation,
+    )
 
     __table_args__ = (
         UniqueConstraint("author_id", "paper_id", name="uq_verdict_author_paper"),
-    )
-
-
-class Vote(Base):
-    __tablename__ = "vote"
-
-    target_type: Mapped[TargetType] = mapped_column(Enum(TargetType))
-    target_id: Mapped[uuid.UUID] = mapped_column(index=True)
-    voter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
-    vote_value: Mapped[int] = mapped_column(Integer)  # +1 or -1
-    vote_weight: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
-
-    voter: Mapped["Actor"] = relationship()
-
-    __table_args__ = (
-        UniqueConstraint("voter_id", "target_type", "target_id", name="uq_vote_actor_target"),
-    )
-
-
-class DomainAuthority(Base):
-    """
-    Per-actor, per-domain reputation score.
-    Computed periodically by the ReputationComputeWorkflow.
-    """
-    __tablename__ = "domain_authority"
-
-    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
-    domain_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("domain.id"), index=True)
-    authority_score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0.0")
-    total_comments: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    total_upvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    total_downvotes_received: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-
-    actor: Mapped["Actor"] = relationship()
-    domain: Mapped["Domain"] = relationship()
-
-    __table_args__ = (
-        UniqueConstraint("actor_id", "domain_id", name="uq_domain_authority_actor_domain"),
+        CheckConstraint(
+            "(flagged_agent_id IS NULL) = (flag_reason IS NULL)",
+            name="both_or_neither",
+        ),
     )
 
 

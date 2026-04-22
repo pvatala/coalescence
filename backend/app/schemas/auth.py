@@ -1,7 +1,11 @@
+import re
 import uuid
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+OPENREVIEW_ID_PATTERN = re.compile(r"^~[A-Za-z][A-Za-z0-9_\-]*\d+$")
 
 
 class Token(BaseModel):
@@ -24,6 +28,20 @@ class SignupRequest(BaseModel):
     email: str = Field(..., description="Email address")
     password: str = Field(..., min_length=8, description="Password (min 8 characters)")
     name: str = Field(..., description="Display name")
+    openreview_id: str = Field(
+        ...,
+        description="OpenReview profile ID (format: ~First_Last1)",
+    )
+
+    @field_validator("openreview_id")
+    @classmethod
+    def _validate_openreview_id(cls, v: str) -> str:
+        if not OPENREVIEW_ID_PATTERN.match(v):
+            raise ValueError(
+                "openreview_id must look like ~First_Last1 "
+                "(tilde + letter-started name + trailing digit)"
+            )
+        return v
 
 
 class LoginRequest(BaseModel):
@@ -32,66 +50,27 @@ class LoginRequest(BaseModel):
 
 
 class AgentKeyLoginRequest(BaseModel):
-    api_key: str = Field(..., description="Delegated agent API key (starts with cs_)")
+    api_key: str = Field(..., description="Agent API key (starts with cs_)")
 
 
-class DelegatedAgentRegisterRequest(BaseModel):
-    name: str = Field(..., description="The name of the delegated agent")
-    description: Optional[str] = None
-    github_repo: str = Field(..., description="URL of the agent's public transparency repository on GitHub")
-
-
-class AgentPublicRegisterRequest(BaseModel):
+class AgentCreateRequest(BaseModel):
     name: str = Field(..., description="The name of the agent")
     description: Optional[str] = None
     github_repo: str = Field(..., description="URL of the agent's public transparency repository on GitHub")
-    owner_email: str = Field(..., description="Email of the human owner (will be created if new)")
-    owner_name: str = Field(..., description="Name of the human owner")
-    owner_password: str = Field(..., min_length=6, description="Password for the human account")
 
 
-class DelegatedAgentRegisterResponse(BaseModel):
+class AgentCreateResponse(BaseModel):
     id: uuid.UUID = Field(..., description="The unique identifier of the registered agent")
-    api_key: str = Field(..., description="The API key for the agent. This is only shown once.")
+    api_key: str = Field(..., description="The API key for the agent. This is only shown once and never persisted in plaintext.")
 
 
-class DelegatedAgentListResponse(BaseModel):
+class AgentListResponse(BaseModel):
     id: uuid.UUID
     name: str
     is_active: bool
-    reputation_score: int
+    karma: float
+    strike_count: int
     created_at: datetime
 
     class Config:
         from_attributes = True
-
-
-# Sovereign agent schemas (kept for future V2 implementation)
-
-class SovereignAgentRegisterRequest(BaseModel):
-    name: str = Field(..., description="The name of the sovereign agent")
-    public_key: str = Field(..., description="The public key of the sovereign agent")
-
-
-class SovereignAgentRegisterResponse(BaseModel):
-    agent_id: uuid.UUID
-    public_key_hash: str
-    message: str = "Agent registered successfully"
-
-
-class SovereignAgentChallengeRequest(BaseModel):
-    public_key: str = Field(..., description="The public key of the sovereign agent")
-
-
-class SovereignAgentChallengeResponse(BaseModel):
-    challenge: str = Field(..., description="The challenge string to be signed by the agent")
-
-
-class SovereignAgentLoginRequest(BaseModel):
-    public_key: str = Field(..., description="The public key of the sovereign agent")
-    signature: str = Field(..., description="The signature of the challenge string")
-    challenge: str = Field(..., description="The challenge that was signed")
-
-
-class SovereignAgentLoginResponse(Token):
-    pass

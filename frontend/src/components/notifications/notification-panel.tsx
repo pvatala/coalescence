@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { Bell, MessageSquare, FileText, Scale, Check } from "lucide-react";
+import { Bell, MessageSquare, FileText, Check, Hourglass, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNotificationStore } from "@/lib/store";
 import { timeAgo } from "@/lib/utils";
@@ -10,8 +10,9 @@ import { timeAgo } from "@/lib/utils";
 const TYPE_CONFIG: Record<string, { icon: typeof Bell; label: string }> = {
   REPLY: { icon: MessageSquare, label: "Reply" },
   COMMENT_ON_PAPER: { icon: MessageSquare, label: "Comment" },
-  VERDICT_ON_PAPER: { icon: Scale, label: "Verdict" },
   PAPER_IN_DOMAIN: { icon: FileText, label: "New paper" },
+  PAPER_DELIBERATING: { icon: Hourglass, label: "Deliberation" },
+  PAPER_REVIEWED: { icon: CheckCircle2, label: "Reviewed" },
 };
 
 function getNotificationIcon(type: string) {

@@ -1,19 +1,27 @@
 from typing import List
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor
+from app.core.moderation import (
+    ModerationUnavailableError,
+    ModerationVerdict,
+    moderate_comment,
+)
 from app.core.rate_limit import limiter, COMMENT_RATE_LIMIT
-from app.models.identity import Actor
-from app.models.platform import Comment, Paper, Domain
+from app.models.identity import Actor, ActorType, Agent
+from app.models.platform import Comment, Paper, Domain, PaperStatus
 from app.schemas.platform import CommentCreate, CommentResponse
 from app.core.events import emit_event
 
 router = APIRouter()
+
+FIRST_COMMENT_COST = 1.0
+SUBSEQUENT_COMMENT_COST = 0.1
 
 
 def _comment_to_response(comment: Comment, actor_type: str = "human", actor_name: str | None = None) -> CommentResponse:
@@ -26,9 +34,6 @@ def _comment_to_response(comment: Comment, actor_type: str = "human", actor_name
         author_name=actor_name,
         content_markdown=comment.content_markdown,
         github_file_url=comment.github_file_url,
-        upvotes=comment.upvotes,
-        downvotes=comment.downvotes,
-        net_score=comment.net_score,
         created_at=comment.created_at,
         updated_at=comment.updated_at,
     )
@@ -70,11 +75,21 @@ async def create_comment(
     actor: Actor = Depends(get_current_actor),
     db: AsyncSession = Depends(get_db),
 ):
-    """Post a comment on a paper."""
+    """Post a comment on a paper. Agents only — humans cannot post comments."""
+    if actor.actor_type != ActorType.AGENT:
+        raise HTTPException(
+            status_code=403, detail="Only agents can post comments"
+        )
     paper_result = await db.execute(select(Paper).where(Paper.id == comment_in.paper_id))
     paper = paper_result.scalar_one_or_none()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
+
+    if paper.status != PaperStatus.IN_REVIEW:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Paper is not accepting comments; phase is '{paper.status.value}'.",
+        )
 
     if comment_in.parent_id:
         parent_result = await db.execute(
@@ -82,6 +97,53 @@ async def create_comment(
         )
         if not parent_result.scalar_one_or_none():
             raise HTTPException(status_code=404, detail="Parent comment not found")
+
+    locked = await db.execute(
+        select(Agent).where(Agent.id == actor.id).with_for_update()
+    )
+    agent = locked.scalar_one()
+
+    prior = await db.execute(
+        select(func.count())
+        .select_from(Comment)
+        .where(
+            Comment.author_id == actor.id,
+            Comment.paper_id == comment_in.paper_id,
+        )
+    )
+    has_prior = prior.scalar_one() > 0
+    cost = SUBSEQUENT_COMMENT_COST if has_prior else FIRST_COMMENT_COST
+
+    if agent.karma < cost:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Insufficient karma: {cost} required, {agent.karma} available",
+        )
+
+    try:
+        moderation_result = await moderate_comment(
+            comment_in.content_markdown, paper_title=paper.title
+        )
+    except ModerationUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="Moderation unavailable — please try again shortly.",
+        )
+    if moderation_result.verdict == ModerationVerdict.VIOLATE:
+        agent.strike_count += 1
+        if agent.strike_count % 3 == 0:
+            agent.karma = max(0.0, agent.karma - 10.0)
+        await db.commit()
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Comment rejected by moderation",
+                "category": moderation_result.category.value,
+                "reason": moderation_result.reason,
+            },
+        )
+
+    agent.karma -= cost
 
     comment = Comment(
         paper_id=comment_in.paper_id,

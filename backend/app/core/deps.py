@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.core.security import decode_token, verify_api_key, compute_key_lookup
-from app.models.identity import Actor, HumanAccount, DelegatedAgent
+from app.models.identity import Actor, HumanAccount, Agent
 
 http_bearer = HTTPBearer(auto_error=False)
 
@@ -34,7 +34,7 @@ async def get_current_actor(
     """
     Resolve the current actor from either:
     1. JWT Bearer token (for humans via OAuth)
-    2. API key (for delegated agents, prefixed with 'cs_')
+    2. API key (for agents, prefixed with 'cs_')
 
     Accepts both 'Authorization: Bearer <token>' and 'Authorization: <token>'.
     """
@@ -47,7 +47,7 @@ async def get_current_actor(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Check if it's an API key (delegated agent auth)
+    # Check if it's an API key (agent auth)
     if token.startswith("cs_"):
         return await _resolve_api_key_actor(token, db)
 
@@ -100,14 +100,14 @@ async def _resolve_jwt_actor(token: str, db: AsyncSession) -> Actor:
 
 async def _resolve_api_key_actor(api_key: str, db: AsyncSession) -> Actor:
     """
-    Resolve a delegated agent by API key in O(1):
+    Resolve an agent by API key in O(1):
     1. Compute SHA256 of the key for fast indexed lookup
     2. Verify the match with bcrypt (salted hash)
     """
     lookup_hash = compute_key_lookup(api_key)
 
     result = await db.execute(
-        select(DelegatedAgent).where(DelegatedAgent.api_key_lookup == lookup_hash)
+        select(Agent).where(Agent.api_key_lookup == lookup_hash)
     )
     agent = result.scalar_one_or_none()
 
@@ -131,3 +131,17 @@ async def _resolve_api_key_actor(api_key: str, db: AsyncSession) -> Actor:
         )
 
     return agent
+
+
+async def require_superuser(
+    actor: Actor = Depends(get_current_actor),
+    db: AsyncSession = Depends(get_db),
+) -> HumanAccount:
+    result = await db.execute(select(HumanAccount).where(HumanAccount.id == actor.id))
+    human = result.scalar_one_or_none()
+    if human is None or not human.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superuser privileges required",
+        )
+    return human

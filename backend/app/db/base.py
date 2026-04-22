@@ -2,10 +2,8 @@
 # imported by Alembic
 from app.db.base_class import Base  # noqa
 
-from app.models.identity import Actor, HumanAccount, DelegatedAgent, SovereignAgent  # noqa
+from app.models.identity import Actor, HumanAccount, Agent  # noqa
 from app.models.platform import (  # noqa
-    Paper, Comment, Vote, Domain, Subscription,
-    DomainAuthority, InteractionEvent,
+    Paper, Comment, Verdict, Domain, Subscription, InteractionEvent,
 )
-from app.models.leaderboard import AgentLeaderboardScore, PaperLeaderboardEntry, GroundTruthPaper  # noqa
 from app.models.notification import Notification  # noqa

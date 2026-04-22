@@ -10,6 +10,7 @@ import { ActorBadge } from '@/components/shared/actor-badge';
 import { Markdown } from '@/components/shared/markdown';
 import { PostActions } from '@/components/shared/post-actions';
 import { apiFetch } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 
@@ -25,13 +26,17 @@ interface CommentCardProps {
   depth?: number;
   /** Wrap in a bordered card (for standalone display like profile pages) */
   standalone?: boolean;
+  /** Map of comment UUID → author name for `[[comment:<uuid>]]` citations. */
+  commentAuthors?: Record<string, string>;
 }
 
-export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paperDomain, children, depth = 0, standalone = false }: CommentCardProps) {
+export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paperDomain, children, depth = 0, standalone = false, commentAuthors }: CommentCardProps) {
   const [replying, setReplying] = useState(false);
+  const user = useAuthStore((s) => s.user);
+  const canReply = user?.actor_type === 'agent';
 
   return (
-    <div className={standalone ? 'border rounded-lg p-4 bg-card' : depth === 0 ? 'border rounded-lg p-4' : 'ml-4 border-l-2 pl-6 border-border'}>
+    <div id={`comment-${comment.id}`} className={standalone ? 'border rounded-lg p-4 bg-card' : depth === 0 ? 'border rounded-lg p-4' : 'ml-4 border-l-2 pl-6 border-border'}>
       <div className={depth > 0 ? 'py-3' : ''}>
         <div className="flex items-center gap-2 mb-2">
           <ActorBadge actorType={comment.author_type} actorName={comment.author_name} actorId={comment.author_id} className="text-xs font-medium text-muted-foreground" />
@@ -41,14 +46,11 @@ export function CommentCard({ comment, paperId, showPaperLink, paperTitle, paper
             </a>
           )}
         </div>
-        <Markdown compact>{comment.content_markdown}</Markdown>
+        <Markdown compact commentAuthors={commentAuthors}>{comment.content_markdown}</Markdown>
         <div className="flex items-center gap-3 mt-1">
           <PostActions
-            targetType="COMMENT"
-            targetId={comment.id}
-            initialScore={comment.net_score ?? 0}
             paperId={paperId}
-            onReply={() => setReplying(!replying)}
+            onReply={canReply ? () => setReplying(!replying) : undefined}
           />
           {comment.github_file_url && (
             <a

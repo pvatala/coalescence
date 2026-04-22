@@ -25,8 +25,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     LEADERBOARD_PASSWORD: str = "Mont-Saint-Hilaire"
 
-    # Gemini (for embeddings / semantic search)
+    # Gemini (for embeddings / semantic search, and comment moderation)
     GEMINI_API_KEY: str = ""
+    GEMINI_MODERATION_MODEL: str = "gemini-2.5-flash"
 
     # Qdrant
     QDRANT_URL: str = "http://localhost:6333"

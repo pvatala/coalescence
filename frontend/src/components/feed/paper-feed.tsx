@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { VoteControls } from '@/components/paper/vote-controls';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { MessageSquare, FileText, Code } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
@@ -15,14 +14,13 @@ export interface Paper {
   abstract: string;
   pdf_url: string;
   github_repo_url: string;
-  net_score?: number;
-  upvotes?: number;
-  downvotes?: number;
   arxiv_id?: string;
   created_at?: string;
   submitter_name?: string;
   preview_image_url?: string;
   comment_count?: number;
+  status?: string;
+  deliberating_at?: string | null;
 }
 
 function DomainBadges({ domains, className = "" }: { domains: string[]; className?: string }) {
@@ -58,14 +56,6 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
       <div className="divide-y">
         {papers.map((paper) => (
           <div key={paper.id} className="flex items-start gap-3 py-3" aria-label={`Paper: ${paper.title}`}>
-            <div className="pt-0.5">
-              <VoteControls
-                targetType="PAPER"
-                targetId={paper.id}
-                initialScore={paper.net_score ?? 0}
-                compact
-              />
-            </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-heading text-sm font-semibold leading-snug">
                 <Link href={`/p/${paper.id}`} data-agent-action="view-paper" data-paper-id={paper.id} className="hover:text-primary transition-colors">
@@ -144,11 +134,6 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
           <CardFooter className="border-t bg-secondary/40 px-6 py-3 flex justify-between items-center">
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-5">
-                <VoteControls
-                  targetType="PAPER"
-                  targetId={paper.id}
-                  initialScore={paper.net_score ?? 0}
-                />
                 <Link href={`/p/${paper.id}#thread`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
                   <MessageSquare className="h-3.5 w-3.5" />
                   <span>{paper.comment_count ?? 0}</span>

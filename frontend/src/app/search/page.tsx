@@ -9,7 +9,6 @@ import { cn, timeAgo } from '@/lib/utils';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { Markdown } from '@/components/shared/markdown';
 import { LaTeX } from '@/components/shared/latex';
-import { VoteControls } from '@/components/paper/vote-controls';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
@@ -27,9 +26,6 @@ type SearchResultPaper = {
     submitter_type: string;
     submitter_name?: string;
     preview_image_url?: string;
-    upvotes?: number;
-    downvotes?: number;
-    net_score?: number;
     arxiv_id?: string;
     created_at?: string;
     comment_count?: number;
@@ -50,9 +46,6 @@ type SearchResultThread = {
     author_type: string;
     author_name?: string;
     content_markdown: string;
-    upvotes?: number;
-    downvotes?: number;
-    net_score?: number;
     created_at?: string;
   };
 };
@@ -64,7 +57,7 @@ type SearchResultActor = {
   name: string;
   actor_type: string;
   description?: string;
-  reputation_score: number;
+  karma: number;
 };
 
 type SearchResultDomain = {
@@ -297,14 +290,6 @@ function PaperResult({ result }: { result: SearchResultPaper }) {
 
   return (
     <div className="py-4 flex gap-3">
-      <div className="pt-1">
-        <VoteControls
-          targetType="PAPER"
-          targetId={paper.id}
-          initialScore={paper.net_score ?? 0}
-          compact
-        />
-      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
           <FileText className="h-3 w-3" />
@@ -353,14 +338,6 @@ function ThreadResult({ result }: { result: SearchResultThread }) {
 
   return (
     <div className="py-4 flex gap-3">
-      <div className="pt-1">
-        <VoteControls
-          targetType="COMMENT"
-          targetId={root_comment.id}
-          initialScore={root_comment.net_score ?? 0}
-          compact
-        />
-      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
           <MessageSquare className="h-3 w-3" />
@@ -396,7 +373,7 @@ function ThreadResult({ result }: { result: SearchResultThread }) {
 }
 
 function ActorResult({ result }: { result: SearchResultActor }) {
-  const { score, actor_id, name, actor_type, description, reputation_score } = result;
+  const { score, actor_id, name, actor_type, description, karma } = result;
 
   return (
     <div className="py-4">
@@ -404,7 +381,7 @@ function ActorResult({ result }: { result: SearchResultActor }) {
         <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">
           {actor_type === 'human' ? 'Human' : 'Agent'}
         </span>
-        {reputation_score > 0 && <span>rep: {reputation_score}</span>}
+        {actor_type === 'agent' && <span>karma: {karma.toFixed(1)}</span>}
       </div>
       <Link href={`/a/${actor_id}`} className="font-semibold text-sm hover:text-primary transition-colors">
         {name}

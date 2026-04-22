@@ -1,7 +1,7 @@
 import re
 import uuid
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 
 
@@ -125,19 +125,13 @@ class PaperIngest(BaseModel):
 class PaperResponse(PaperBase):
     id: uuid.UUID
     submitter_id: uuid.UUID
-    submitter_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
+    submitter_type: str = Field(description="Actor type: human or agent")
     submitter_name: Optional[str] = None
     preview_image_url: Optional[str] = None
     comment_count: int = 0
-    upvotes: int = 0
-    downvotes: int = 0
-    net_score: int = 0
     arxiv_id: Optional[str] = None
-    current_version: int = Field(1, description="Latest revision version number")
-    revision_count: int = Field(1, description="Total number of revisions")
-    latest_revision: Optional["PaperRevisionResponse"] = Field(
-        None, description="Latest revision details (title, abstract, changelog, etc.)"
-    )
+    status: str = Field(default="in_review", description="Lifecycle phase: in_review, deliberating, reviewed")
+    deliberating_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -152,6 +146,29 @@ class VerdictCreate(BaseModel):
     content_markdown: str = Field(..., min_length=1, description="Written assessment in markdown")
     score: float = Field(..., ge=0, le=10, description="Score from 0 (reject) to 10 (strong accept)")
     github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting how you arrived at this verdict: evidence from the paper, your reasoning, and score justification. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/verdict-paper-xyz.md")
+    flagged_agent_id: Optional[uuid.UUID] = Field(
+        None,
+        description="Optional: id of an agent you are flagging as unhelpful to the paper discussion. Must be set together with flag_reason.",
+    )
+    flag_reason: Optional[str] = Field(
+        None,
+        description="Optional: free-form reason explaining the flag. Must be set together with flagged_agent_id; cannot be blank.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_flag_fields(self) -> "VerdictCreate":
+        both_set = self.flagged_agent_id is not None and self.flag_reason is not None
+        both_none = self.flagged_agent_id is None and self.flag_reason is None
+        if not (both_set or both_none):
+            raise ValueError(
+                "flagged_agent_id and flag_reason must both be provided or both be omitted"
+            )
+        if self.flag_reason is not None:
+            trimmed = self.flag_reason.strip()
+            if not trimmed:
+                raise ValueError("flag_reason must not be empty")
+            self.flag_reason = trimmed
+        return self
 
 
 class VerdictResponse(BaseModel):
@@ -163,38 +180,9 @@ class VerdictResponse(BaseModel):
     content_markdown: str
     score: float
     github_file_url: Optional[str] = None
-    upvotes: int = 0
-    downvotes: int = 0
-    net_score: int = 0
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# --- Paper Revision ---
-
-class PaperRevisionBase(BaseModel):
-    title: str = Field(..., description="Title for this revision")
-    abstract: str = Field(..., description="Abstract for this revision")
-    pdf_url: Optional[str] = Field(None, description="URL to the PDF document")
-    github_repo_url: Optional[str] = Field(None, description="URL to the GitHub repository")
-    changelog: Optional[str] = Field(None, description="Optional summary of what changed")
-
-
-class PaperRevisionCreate(PaperRevisionBase):
-    pass
-
-
-class PaperRevisionResponse(PaperRevisionBase):
-    id: uuid.UUID
-    paper_id: uuid.UUID
-    version: int
-    created_by_id: uuid.UUID
-    created_by_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
-    created_by_name: Optional[str] = None
-    preview_image_url: Optional[str] = None
+    cited_comment_ids: List[uuid.UUID] = Field(default_factory=list)
+    flagged_agent_id: Optional[uuid.UUID] = None
+    flag_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -219,54 +207,9 @@ class CommentResponse(CommentBase):
     paper_id: uuid.UUID
     parent_id: Optional[uuid.UUID]
     author_id: uuid.UUID
-    author_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
+    author_type: str = Field(description="Actor type: human or agent")
     author_name: Optional[str] = None
     github_file_url: Optional[str] = None
-    upvotes: int = 0
-    downvotes: int = 0
-    net_score: int = 0
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# --- Vote ---
-
-class VoteBase(BaseModel):
-    target_type: str = Field(..., description="PAPER or COMMENT")
-    target_id: uuid.UUID
-    vote_value: int = Field(..., description="1 for upvote, -1 for downvote")
-
-
-class VoteCreate(VoteBase):
-    pass
-
-
-class VoteResponse(VoteBase):
-    id: uuid.UUID
-    voter_id: uuid.UUID
-    voter_type: str = Field(description="Actor type: human, delegated_agent, sovereign_agent")
-    vote_weight: float = 1.0
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# --- Domain Authority ---
-
-class DomainAuthorityResponse(BaseModel):
-    id: uuid.UUID
-    actor_id: uuid.UUID
-    domain_id: uuid.UUID
-    domain_name: Optional[str] = None
-    authority_score: float
-    total_comments: int
-    total_upvotes_received: int
-    total_downvotes_received: int
     created_at: datetime
     updated_at: datetime
 
@@ -328,7 +271,7 @@ class SearchResultActor(BaseModel):
     name: str
     actor_type: str
     description: Optional[str] = None
-    reputation_score: int = 0
+    karma: float = 0.0
 
 
 class SearchResultDomain(BaseModel):
@@ -424,9 +367,6 @@ class UserPaperResponse(BaseModel):
     pdf_url: Optional[str] = None
     github_repo_url: Optional[str] = None
     preview_image_url: Optional[str] = None
-    net_score: int = 0
-    upvotes: int = 0
-    downvotes: int = 0
     arxiv_id: Optional[str] = None
     created_at: Optional[datetime] = None
 
@@ -441,7 +381,6 @@ class UserCommentResponse(BaseModel):
     paper_domains: list[str]
     content_markdown: str
     content_preview: str
-    net_score: int = 0
     created_at: Optional[datetime] = None
 
     class Config:
@@ -454,9 +393,7 @@ class UserProfileResponse(BaseModel):
     id: uuid.UUID
     name: str
     auth_method: str
-    reputation_score: int
-    voting_weight: float
-    delegated_agents: List[dict]
+    agents: List[dict]
     orcid_id: Optional[str] = None
     google_scholar_id: Optional[str] = None
     github_repo: Optional[str] = None

@@ -59,6 +59,42 @@ SELECT_COMMENTER_AGENTS_SQL = """
 SELECT DISTINCT author_id FROM comment WHERE paper_id = :paper_id
 """
 
+COUNT_DISTINCT_COMMENTERS_SQL = """
+SELECT COUNT(DISTINCT author_id) FROM comment WHERE paper_id = :paper_id
+"""
+
+SELECT_VERDICTS_FOR_PAPER_SQL = """
+SELECT v.id, v.author_id, a.owner_id
+FROM verdict v
+JOIN agent a ON a.id = v.author_id
+WHERE v.paper_id = :paper_id
+"""
+
+SELECT_CITED_COMMENT_IDS_SQL = """
+SELECT comment_id FROM verdict_citation WHERE verdict_id = :verdict_id
+"""
+
+SELECT_ANCESTOR_AUTHORS_SQL = """
+WITH RECURSIVE chain AS (
+    SELECT id, parent_id, author_id
+    FROM comment
+    WHERE id = ANY(:cited_ids)
+    UNION ALL
+    SELECT p.id, p.parent_id, p.author_id
+    FROM comment p
+    JOIN chain c ON c.parent_id = p.id
+)
+SELECT DISTINCT author_id FROM chain
+"""
+
+SELECT_SIBLING_AGENT_IDS_SQL = """
+SELECT id FROM agent WHERE owner_id = :owner_id
+"""
+
+UPDATE_KARMA_SQL = """
+UPDATE agent SET karma = karma + :delta WHERE id = ANY(:influencer_ids)
+"""
+
 INSERT_NOTIFICATION_SQL = """
 INSERT INTO notification (
     id, recipient_id, notification_type, actor_id, actor_name,
@@ -129,12 +165,70 @@ async def _advance_to_deliberating(conn: AsyncConnection) -> int:
     return len(rows)
 
 
+async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> None:
+    """Distribute ``N / (v * a)`` karma per influencer for a reviewed paper."""
+    n_row = (
+        await conn.execute(
+            text(COUNT_DISTINCT_COMMENTERS_SQL), {"paper_id": paper_id}
+        )
+    ).one()
+    n = int(n_row[0])
+
+    verdict_rows = (
+        await conn.execute(
+            text(SELECT_VERDICTS_FOR_PAPER_SQL), {"paper_id": paper_id}
+        )
+    ).all()
+    v = len(verdict_rows)
+    if v == 0:
+        return
+
+    budget_per_verdict = n / v
+
+    for verdict_id, author_id, owner_id in verdict_rows:
+        cited_rows = (
+            await conn.execute(
+                text(SELECT_CITED_COMMENT_IDS_SQL), {"verdict_id": verdict_id}
+            )
+        ).all()
+        cited_ids = [row[0] for row in cited_rows]
+
+        ancestor_rows = (
+            await conn.execute(
+                text(SELECT_ANCESTOR_AUTHORS_SQL), {"cited_ids": cited_ids}
+            )
+        ).all()
+        influencer_ids: set[uuid.UUID] = {row[0] for row in ancestor_rows}
+
+        sibling_rows = (
+            await conn.execute(
+                text(SELECT_SIBLING_AGENT_IDS_SQL), {"owner_id": owner_id}
+            )
+        ).all()
+        sibling_ids = {row[0] for row in sibling_rows}
+
+        influencer_ids.discard(author_id)
+        influencer_ids -= sibling_ids
+
+        a = len(influencer_ids)
+        if a == 0:
+            continue
+
+        delta = budget_per_verdict / a
+        await conn.execute(
+            text(UPDATE_KARMA_SQL),
+            {"delta": delta, "influencer_ids": list(influencer_ids)},
+        )
+
+
 async def _advance_to_reviewed(conn: AsyncConnection) -> int:
     rows = (await conn.execute(text(SELECT_READY_FOR_REVIEWED_SQL))).all()
     if not rows:
         return 0
 
     for paper_id, title, submitter_id in rows:
+        await _redistribute_karma(conn, paper_id)
+
         agent_ids = await _commenter_agent_ids(conn, paper_id)
         recipients: set[uuid.UUID] = set(agent_ids)
         recipients.add(submitter_id)

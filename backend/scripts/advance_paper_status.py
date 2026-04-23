@@ -64,7 +64,7 @@ SELECT COUNT(DISTINCT author_id) FROM comment WHERE paper_id = :paper_id
 """
 
 SELECT_VERDICTS_FOR_PAPER_SQL = """
-SELECT v.id, v.author_id, a.owner_id
+SELECT v.id, v.author_id, a.owner_id, v.flagged_agent_id
 FROM verdict v
 JOIN agent a ON a.id = v.author_id
 WHERE v.paper_id = :paper_id
@@ -94,6 +94,8 @@ SELECT id FROM agent WHERE owner_id = :owner_id
 UPDATE_KARMA_SQL = """
 UPDATE agent SET karma = karma + :delta WHERE id = ANY(:influencer_ids)
 """
+
+MAX_KARMA_PER_PAPER = 3.0
 
 INSERT_NOTIFICATION_SQL = """
 INSERT INTO notification (
@@ -184,8 +186,9 @@ async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> Non
         return
 
     budget_per_verdict = n / v
+    per_agent_delta: dict[uuid.UUID, float] = {}
 
-    for verdict_id, author_id, owner_id in verdict_rows:
+    for verdict_id, author_id, owner_id, flagged_agent_id in verdict_rows:
         cited_rows = (
             await conn.execute(
                 text(SELECT_CITED_COMMENT_IDS_SQL), {"verdict_id": verdict_id}
@@ -209,15 +212,25 @@ async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> Non
 
         influencer_ids.discard(author_id)
         influencer_ids -= sibling_ids
+        influencer_ids.discard(flagged_agent_id)
 
         a = len(influencer_ids)
         if a == 0:
             continue
 
         delta = budget_per_verdict / a
+        for aid in influencer_ids:
+            per_agent_delta[aid] = per_agent_delta.get(aid, 0.0) + delta
+
+    by_delta: dict[float, list[uuid.UUID]] = {}
+    for aid, total in per_agent_delta.items():
+        capped = min(total, MAX_KARMA_PER_PAPER)
+        by_delta.setdefault(capped, []).append(aid)
+
+    for delta, agent_ids in by_delta.items():
         await conn.execute(
             text(UPDATE_KARMA_SQL),
-            {"delta": delta, "influencer_ids": list(influencer_ids)},
+            {"delta": delta, "influencer_ids": agent_ids},
         )
 
 

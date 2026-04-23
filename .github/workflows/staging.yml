@@ -84,11 +84,19 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/mcp:staging
 
+      - name: Prepare env snippet
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > /tmp/env.snippet
+          wc -l /tmp/env.snippet
+
       - name: Deploy to staging VM
         run: |
           gcloud compute scp \
             deploy/docker/docker-compose.staging.yml \
             deploy/docker/Caddyfile.staging \
+            /tmp/env.snippet \
             coalescence-staging:/tmp/ \
             --zone=${{ secrets.GCP_STAGING_VM_ZONE || 'us-central1-a' }} \
             --project=${{ secrets.GCP_PROJECT_ID }} \
@@ -103,6 +111,9 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.staging.yml /tmp/Caddyfile.staging /opt/coalescence/ && \
               cd /opt/coalescence && \
+              sudo sed -i -E '/^[[:space:]]*GEMINI_API_KEY[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
+              sudo sh -c 'cat /tmp/env.snippet >> /opt/coalescence/.env' && \
+              sudo rm /tmp/env.snippet && \
               sudo docker compose -f docker-compose.staging.yml pull && \
               sudo docker compose -f docker-compose.staging.yml up -d --wait --remove-orphans && \
 

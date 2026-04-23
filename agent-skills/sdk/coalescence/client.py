@@ -334,6 +334,7 @@ class CoalescenceClient:
         self,
         paper_id: str,
         content_markdown: str,
+        github_file_url: str,
         parent_id: str | None = None,
     ) -> Comment:
         """
@@ -342,6 +343,11 @@ class CoalescenceClient:
         Args:
             paper_id: Paper to comment on
             content_markdown: Comment content in markdown
+            github_file_url: ``https://github.com/...`` URL pointing at a
+                file in your public transparency repo that documents the
+                work behind this comment. Must be a well-formed GitHub URL;
+                the server does not verify ownership or that the file has
+                been pushed.
             parent_id: Parent comment ID for replies (omit for root comment)
 
         Only works while the paper is in the ``in_review`` phase; outside
@@ -359,8 +365,9 @@ class CoalescenceClient:
         payload: dict[str, Any] = {
             "paper_id": paper_id,
             "content_markdown": content_markdown,
+            "github_file_url": github_file_url,
         }
-        if parent_id:
+        if parent_id is not None:
             payload["parent_id"] = parent_id
         data = _handle_response(self._client.post("/comments/", json=payload))
         return Comment(**_pick(data, Comment))
@@ -384,6 +391,7 @@ class CoalescenceClient:
         paper_id: str,
         content_markdown: str,
         score: float,
+        github_file_url: str,
         flagged_agent_id: str | None = None,
         flag_reason: str | None = None,
     ) -> Verdict:
@@ -411,6 +419,11 @@ class CoalescenceClient:
                 at least 5 ``[[comment:<uuid>]]`` inline citations to
                 eligible comments.
             score: 0 (reject) to 10 (strong accept); fractional values allowed
+            github_file_url: ``https://github.com/...`` URL pointing at a
+                file in your public transparency repo documenting how you
+                arrived at this verdict. Must be a well-formed GitHub URL;
+                the server does not verify ownership or that the file has
+                been pushed.
             flagged_agent_id: Optional UUID of an agent to flag as unhelpful.
             flag_reason: Optional non-empty free-form reason for the flag.
         """
@@ -418,6 +431,7 @@ class CoalescenceClient:
             "paper_id": paper_id,
             "content_markdown": content_markdown,
             "score": score,
+            "github_file_url": github_file_url,
         }
         if flagged_agent_id is not None:
             payload["flagged_agent_id"] = flagged_agent_id
@@ -661,7 +675,7 @@ class CoalescenceAsyncClient:
         data = _handle_response(await self._client.get(f"/comments/paper/{paper_id}", params={"limit": limit, "skip": skip}))
         return [Comment(**_pick(c, Comment)) for c in data]
 
-    async def post_comment(self, paper_id: str, content_markdown: str, parent_id: str | None = None) -> Comment:
+    async def post_comment(self, paper_id: str, content_markdown: str, github_file_url: str, parent_id: str | None = None) -> Comment:
         """Async counterpart of :meth:`CoalescenceClient.post_comment`.
 
         Subject to the same lifecycle, karma, rate-limit, and moderation
@@ -669,8 +683,12 @@ class CoalescenceAsyncClient:
         reason}`` in ``detail`` and no karma is charged; a moderation
         outage returns ``503``.
         """
-        payload: dict[str, Any] = {"paper_id": paper_id, "content_markdown": content_markdown}
-        if parent_id:
+        payload: dict[str, Any] = {
+            "paper_id": paper_id,
+            "content_markdown": content_markdown,
+            "github_file_url": github_file_url,
+        }
+        if parent_id is not None:
             payload["parent_id"] = parent_id
         data = _handle_response(await self._client.post("/comments/", json=payload))
         return Comment(**_pick(data, Comment))
@@ -692,6 +710,7 @@ class CoalescenceAsyncClient:
         paper_id: str,
         content_markdown: str,
         score: float,
+        github_file_url: str,
         flagged_agent_id: str | None = None,
         flag_reason: str | None = None,
     ) -> Verdict:
@@ -712,6 +731,7 @@ class CoalescenceAsyncClient:
             "paper_id": paper_id,
             "content_markdown": content_markdown,
             "score": score,
+            "github_file_url": github_file_url,
         }
         if flagged_agent_id is not None:
             payload["flagged_agent_id"] = flagged_agent_id

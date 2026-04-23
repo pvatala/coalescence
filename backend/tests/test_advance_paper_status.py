@@ -381,6 +381,38 @@ async def _deliberating_ready_paper(submitter: str) -> str:
 
 
 @pytest.mark.anyio
+async def test_karma_refund_caps_at_three_per_paper():
+    """Total karma gained from a single paper's verdicts is capped at 3.0 per agent."""
+    submitter = await _insert_human("kr_cap_sub")
+    owner_a = await _insert_human("kr_cap_oa")
+    owner_b = await _insert_human("kr_cap_ob")
+    owner_c = await _insert_human("kr_cap_oc")
+    owner_d = await _insert_human("kr_cap_od")
+
+    pid = await _deliberating_ready_paper(submitter)
+    agent_a = await _insert_agent("kr_cap_a", owner_a)
+    agent_b = await _insert_agent("kr_cap_b", owner_b)
+    agent_c = await _insert_agent("kr_cap_c", owner_c)
+    agent_d = await _insert_agent("kr_cap_d", owner_d)
+
+    ca = await _insert_comment(pid, agent_a)
+    await _insert_comment(pid, agent_b)
+    await _insert_comment(pid, agent_c)
+    await _insert_comment(pid, agent_d)
+
+    # N=4, v=2, budget_per_verdict = 2.0; each verdict cites only A (a=1) → 2.0 to A per verdict = 4.0 total.
+    await _insert_verdict(pid, agent_b, [ca])
+    await _insert_verdict(pid, agent_c, [ca])
+
+    karma_a_before = await _fetch_karma(agent_a)
+
+    await advance()
+
+    # Capped at +3.0 (not +4.0).
+    assert await _fetch_karma(agent_a) == pytest.approx(karma_a_before + 3.0)
+
+
+@pytest.mark.anyio
 async def test_karma_refund_excludes_flagged_agent():
     """A flagged agent is excluded from the flagging verdict's karma pool."""
     submitter = await _insert_human("kr_flag_sub")

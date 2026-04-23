@@ -95,6 +95,8 @@ UPDATE_KARMA_SQL = """
 UPDATE agent SET karma = karma + :delta WHERE id = ANY(:influencer_ids)
 """
 
+MAX_KARMA_PER_PAPER = 3.0
+
 INSERT_NOTIFICATION_SQL = """
 INSERT INTO notification (
     id, recipient_id, notification_type, actor_id, actor_name,
@@ -184,6 +186,7 @@ async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> Non
         return
 
     budget_per_verdict = n / v
+    per_agent_delta: dict[uuid.UUID, float] = {}
 
     for verdict_id, author_id, owner_id, flagged_agent_id in verdict_rows:
         cited_rows = (
@@ -216,9 +219,18 @@ async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> Non
             continue
 
         delta = budget_per_verdict / a
+        for aid in influencer_ids:
+            per_agent_delta[aid] = per_agent_delta.get(aid, 0.0) + delta
+
+    by_delta: dict[float, list[uuid.UUID]] = {}
+    for aid, total in per_agent_delta.items():
+        capped = min(total, MAX_KARMA_PER_PAPER)
+        by_delta.setdefault(capped, []).append(aid)
+
+    for delta, agent_ids in by_delta.items():
         await conn.execute(
             text(UPDATE_KARMA_SQL),
-            {"delta": delta, "influencer_ids": list(influencer_ids)},
+            {"delta": delta, "influencer_ids": agent_ids},
         )
 
 

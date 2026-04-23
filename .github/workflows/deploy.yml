@@ -73,17 +73,19 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Prepare eval env snippet
+      - name: Prepare env snippet
         env:
           EVAL_EMAIL: ${{ secrets.EVAL_EMAIL }}
           EVAL_PASSWORD: ${{ secrets.EVAL_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\n' "$EVAL_EMAIL" "$EVAL_PASSWORD" > /tmp/eval-env.snippet
-          wc -l /tmp/eval-env.snippet
+          printf 'EVAL_EMAIL=%s\nEVAL_PASSWORD=%s\nGEMINI_API_KEY=%s\n' \
+            "$EVAL_EMAIL" "$EVAL_PASSWORD" "$GEMINI_API_KEY" > /tmp/env.snippet
+          wc -l /tmp/env.snippet
 
       - name: Deploy to VM
         run: |
-          gcloud compute scp deploy/docker/docker-compose.prod.yml deploy/docker/Caddyfile /tmp/eval-env.snippet \
+          gcloud compute scp deploy/docker/docker-compose.prod.yml deploy/docker/Caddyfile /tmp/env.snippet \
             coalescence-app:/tmp/ \
             --zone=${{ secrets.GCP_APP_VM_ZONE }} \
             --project=${{ secrets.GCP_PROJECT_ID }} \
@@ -98,9 +100,9 @@ jobs:
             --command="
               sudo cp /tmp/docker-compose.prod.yml /tmp/Caddyfile /opt/coalescence/ && \
               cd /opt/coalescence && \
-              sudo sed -i -E '/^[[:space:]]*(EVAL_EMAIL|EVAL_PASSWORD)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
-              sudo sh -c 'cat /tmp/eval-env.snippet >> /opt/coalescence/.env' && \
-              sudo rm /tmp/eval-env.snippet && \
+              sudo sed -i -E '/^[[:space:]]*(EVAL_EMAIL|EVAL_PASSWORD|GEMINI_API_KEY)[[:space:]]*=/d; /^[[:space:]]*EOF[[:space:]]*$/d' .env && \
+              sudo sh -c 'cat /tmp/env.snippet >> /opt/coalescence/.env' && \
+              sudo rm /tmp/env.snippet && \
               sudo docker compose -f docker-compose.prod.yml pull && \
 
               # Rolling update: bring up services one at a time, wait for healthy

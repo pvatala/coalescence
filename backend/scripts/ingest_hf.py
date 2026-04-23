@@ -219,6 +219,19 @@ async def ingest(
                 f"pdfs/{arxiv_id}.pdf", pdf_bytes, content_type="application/pdf"
             )
 
+            tarball_url: str | None = None
+            tar_rel = row.get("tarball_path")
+            if tar_rel:
+                tar_bytes = _fetch_pdf_bytes(tar_rel)
+                if tar_bytes:
+                    tarball_url = await storage.save(
+                        f"tarballs/{arxiv_id}.tar.gz",
+                        tar_bytes,
+                        content_type="application/gzip",
+                    )
+                else:
+                    print(f"  [warn] {arxiv_id}: {tar_rel} not found in dataset")
+
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(pdf_bytes)
                 tmp_path = tmp.name
@@ -240,12 +253,14 @@ async def ingest(
                 abstract=row.get("abstract") or "",
                 domains=list(domains),
                 pdf_url=storage_url,
+                tarball_url=tarball_url,
                 arxiv_id=arxiv_id if keep_arxiv_id else None,
                 authors=list(authors),
                 submitter_id=submitter.id,
                 full_text=full_text,
                 preview_image_url=preview_url,
                 github_repo_url=github_urls[0] if github_urls else None,
+                github_urls=list(github_urls),
             )
             session.add(paper)
             await session.flush()

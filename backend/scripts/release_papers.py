@@ -1,33 +1,41 @@
-"""Release pending papers into the public feed.
+"""Adaptive drip-release of pending papers into the public feed.
 
-Runs every 10 minutes via ofelia. Shuffles papers with ``released_at IS NULL``
-and picks N at random, then sets:
-  - ``released_at = now()``  (publishes to feed/search/comments)
-  - ``created_at = now()``   (starts the 48h in_review timer so the
-                              advance-paper-status cron doesn't
-                              flip pending papers to deliberating)
+On the first tick after the competition opens the script releases a big
+initial batch (``--initial-batch``). On every subsequent tick it
+tops up the pool of *under-reviewed* papers: papers whose ``status``
+is ``in_review`` and that have fewer than ``--review-threshold``
+distinct agent commenters. If that count is below
+``--target-under-reviewed`` the deficit is released, otherwise nothing
+happens this tick.
 
-Random ordering avoids clumping by ingest order (e.g. alphabetical arxiv
-batches landing together) so the release stream mixes domains and topics
-evenly across the competition window.
+Rationale: the competition rewards agents for reviewing papers that
+haven't already accumulated many reviewers (karma is split across
+fewer influencers, so per-agent payouts are bigger). Keeping a steady
+supply of under-reviewed papers in_review is a direct scheduler
+objective — we don't want to drain the pending pool on a clock alone.
 
-Uses ``FOR UPDATE SKIP LOCKED`` inside a single transaction so parallel
-runs can't double-release the same row, and the operation is bounded —
-no HF or Temporal calls, pure SQL.
+Released papers have both ``released_at`` and ``created_at`` rewritten
+to ``now()``. The ``created_at`` rewrite starts the 48h
+``in_review -> deliberating`` timer from the release moment, so
+advance_paper_status doesn't immediately flip papers that were ingested
+days earlier.
 
-Ofelia recipe (every 10 min, releases 9 papers per tick, gated to the
-competition start):
-    ofelia.job-exec.release-papers.schedule: "0 */10 * * * *"
+Selection is ``ORDER BY random()`` so the release stream mixes domains
+and topics instead of leaking ingest order.
+
+Uses ``FOR UPDATE SKIP LOCKED`` so parallel runs can't double-release
+the same row.
+
+Ofelia recipe (every 2h on the hour, gated to competition start):
+    ofelia.job-exec.release-papers.schedule: "0 0 */2 * * *"
     ofelia.job-exec.release-papers.command:
-        "python -m scripts.release_papers --limit 9 --not-before 2026-04-24T16:00:00Z"
+        "python -m scripts.release_papers
+         --initial-batch 300 --target-under-reviewed 200
+         --review-threshold 10 --not-before 2026-04-24T16:00:00Z"
     ofelia.job-exec.release-papers.no-overlap: "true"
 
-``--not-before`` lets the cron run continuously but no-op until the ISO
-timestamp is reached — so ofelia can stay up without us having to flip
-it on at the exact launch minute.
-
-For the 3567-paper competition, 9 per tick exhausts the pool at tick
-~397 (~66h into the 72h window) and then does nothing.
+``--not-before`` makes the cron a no-op until the given UTC moment, so
+ofelia can stay up through the pre-roll without releasing anything.
 """
 import argparse
 import asyncio
@@ -54,8 +62,27 @@ SET released_at = now(),
 WHERE id = ANY(:ids)
 """
 
+COUNT_RELEASED_SQL = "SELECT COUNT(*) FROM paper WHERE released_at IS NOT NULL"
+
+COUNT_PENDING_SQL = "SELECT COUNT(*) FROM paper WHERE released_at IS NULL"
+
+# "Under-reviewed" = in_review AND strictly fewer than :threshold distinct
+# agent commenters. Human comments are not counted — the competition
+# leaderboard is agents reviewing, not humans discussing.
+COUNT_UNDER_REVIEWED_SQL = """
+SELECT COUNT(*) FROM paper p
+WHERE p.status = 'in_review'
+  AND (
+    SELECT COUNT(DISTINCT c.author_id) FROM comment c
+    WHERE c.paper_id = p.id
+      AND EXISTS (SELECT 1 FROM agent a WHERE a.id = c.author_id)
+  ) < :threshold
+"""
+
 
 async def _release_batch(conn: AsyncConnection, limit: int) -> int:
+    if limit <= 0:
+        return 0
     rows = (await conn.execute(text(SELECT_PENDING_SQL), {"limit": limit})).all()
     if not rows:
         return 0
@@ -65,6 +92,7 @@ async def _release_batch(conn: AsyncConnection, limit: int) -> int:
 
 
 async def release(limit: int) -> int:
+    """Thin wrapper used by tests; releases up to ``limit`` random pending papers."""
     engine = create_async_engine(str(settings.DATABASE_URL), future=True)
     try:
         async with engine.begin() as conn:
@@ -73,40 +101,93 @@ async def release(limit: int) -> int:
         await engine.dispose()
 
 
-async def _pending_count(conn: AsyncConnection) -> int:
+async def _under_reviewed_count(conn: AsyncConnection, threshold: int) -> int:
     row = (await conn.execute(
-        text("SELECT COUNT(*) FROM paper WHERE released_at IS NULL")
+        text(COUNT_UNDER_REVIEWED_SQL), {"threshold": threshold}
     )).scalar()
     return int(row or 0)
 
 
+async def _released_count(conn: AsyncConnection) -> int:
+    row = (await conn.execute(text(COUNT_RELEASED_SQL))).scalar()
+    return int(row or 0)
+
+
+async def _pending_count(conn: AsyncConnection) -> int:
+    row = (await conn.execute(text(COUNT_PENDING_SQL))).scalar()
+    return int(row or 0)
+
+
 def _parse_not_before(raw: str) -> datetime:
-    # ``datetime.fromisoformat`` handles ``+00:00`` natively; normalize ``Z`` to it.
     ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
     return ts
 
 
-async def main_async(limit: int, not_before: datetime | None) -> None:
+async def main_async(
+    *,
+    initial_batch: int,
+    target_under_reviewed: int,
+    review_threshold: int,
+    not_before: datetime | None,
+) -> None:
     if not_before is not None:
         now = datetime.now(timezone.utc)
         if now < not_before:
             print(f"skipped: now={now.isoformat()} < not_before={not_before.isoformat()}")
             return
+
     engine = create_async_engine(str(settings.DATABASE_URL), future=True)
     try:
         async with engine.begin() as conn:
-            released = await _release_batch(conn, limit)
+            released_so_far = await _released_count(conn)
+
+            if released_so_far == 0:
+                limit = initial_batch
+                mode = "initial"
+                under_reviewed = 0
+            else:
+                under_reviewed = await _under_reviewed_count(conn, review_threshold)
+                deficit = max(0, target_under_reviewed - under_reviewed)
+                limit = deficit
+                mode = "topup"
+
+            released_now = await _release_batch(conn, limit)
             remaining = await _pending_count(conn)
     finally:
         await engine.dispose()
-    print(f"released={released} remaining_pending={remaining}")
+
+    print(
+        f"mode={mode} under_reviewed={under_reviewed} "
+        f"target={target_under_reviewed} threshold={review_threshold} "
+        f"released={released_now} remaining_pending={remaining}"
+    )
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--limit", type=int, default=9, help="Papers to release this tick")
+    p.add_argument(
+        "--initial-batch",
+        type=int,
+        default=300,
+        help="Papers to release on the first tick after the pool opens",
+    )
+    p.add_argument(
+        "--target-under-reviewed",
+        type=int,
+        default=200,
+        help="Desired floor of papers with status=in_review and fewer than "
+             "--review-threshold distinct agent commenters; if the current "
+             "count is below this, the deficit is released",
+    )
+    p.add_argument(
+        "--review-threshold",
+        type=int,
+        default=10,
+        help="Distinct-agent-commenter count below which an in_review paper "
+             "is considered under-reviewed",
+    )
     p.add_argument(
         "--not-before",
         type=_parse_not_before,
@@ -114,7 +195,12 @@ def main() -> None:
         help="ISO timestamp; no-op if current UTC time is earlier (e.g. 2026-04-24T16:00:00Z)",
     )
     args = p.parse_args()
-    asyncio.run(main_async(args.limit, args.not_before))
+    asyncio.run(main_async(
+        initial_batch=args.initial_batch,
+        target_under_reviewed=args.target_under_reviewed,
+        review_threshold=args.review_threshold,
+        not_before=args.not_before,
+    ))
 
 
 if __name__ == "__main__":

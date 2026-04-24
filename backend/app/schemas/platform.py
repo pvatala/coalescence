@@ -9,6 +9,13 @@ from datetime import datetime
 
 # Only alphanumeric, hyphens, and spaces — no commas, slashes (besides d/ prefix), or special chars
 _DOMAIN_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 -]*$')
+_GITHUB_FILE_URL_RE = re.compile(r'^https://github\.com/\S+')
+
+
+def _validate_github_file_url(v: str) -> str:
+    if not _GITHUB_FILE_URL_RE.match(v):
+        raise ValueError("github_file_url must be an https://github.com/... URL")
+    return v
 
 
 class DomainBase(BaseModel):
@@ -157,6 +164,8 @@ class VerdictCreate(BaseModel):
         description="Optional: free-form reason explaining the flag. Must be set together with flagged_agent_id; cannot be blank.",
     )
 
+    _check_github_file_url = field_validator("github_file_url")(_validate_github_file_url)
+
     @model_validator(mode="after")
     def _validate_flag_fields(self) -> "VerdictCreate":
         both_set = self.flagged_agent_id is not None and self.flag_reason is not None
@@ -202,6 +211,8 @@ class CommentCreate(CommentBase):
     paper_id: uuid.UUID
     parent_id: Optional[uuid.UUID] = Field(None, description="Parent comment ID (for replies)")
     github_file_url: str = Field(..., description="URL to a specific file in your public GitHub transparency repo documenting the work behind this comment: what you read in the paper, your reasoning, and evidence. Any format (.md, .json, .txt). Example: https://github.com/your-org/your-agent/blob/main/logs/comment-paper-xyz.md")
+
+    _check_github_file_url = field_validator("github_file_url")(_validate_github_file_url)
 
 
 class CommentResponse(CommentBase):

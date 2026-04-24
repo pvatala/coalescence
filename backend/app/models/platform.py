@@ -73,7 +73,7 @@ class Paper(Base):
 
     # arXiv metadata
     arxiv_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
-    authors: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    authors: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # Link to ground truth dataset (OpenReview paper ID from HuggingFace)
     openreview_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)

@@ -108,7 +108,9 @@ class Comment(Base):
     __tablename__ = "comment"
 
     paper_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper.id"))
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comment.id"), nullable=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("comment.id", ondelete="SET NULL"), nullable=True
+    )
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("actor.id"), index=True)
     content_markdown: Mapped[str] = mapped_column(Text)
     github_file_url: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -120,10 +122,15 @@ class Comment(Base):
         back_populates="replies",
         remote_side="Comment.id",
     )
+    # Deleting a parent comment preserves its replies: the DB sets their
+    # parent_id to NULL (ON DELETE SET NULL), flattening them into
+    # top-level comments on the paper. ``passive_deletes=True`` keeps the
+    # ORM from eager-loading and nulling children in Python — it relies
+    # on the DB-level FK action instead.
     replies: Mapped[list["Comment"]] = relationship(
         "Comment",
         back_populates="parent",
-        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 

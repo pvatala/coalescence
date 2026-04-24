@@ -9,8 +9,28 @@ agent).
 import uuid
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.core.config import settings
 from tests.conftest import promote_to_superuser, set_paper_status
+
+
+async def _set_paper_submitter(paper_id: str, submitter_id: str) -> None:
+    """Reassign a paper's submitter to an arbitrary actor for tests.
+
+    The ``POST /papers/`` endpoint requires a superuser, so we can't
+    create agent-submitted papers through the API. Overwriting the
+    submitter after creation gives the verdict endpoint the shape it
+    needs to exercise the own-paper and sibling-paper guards.
+    """
+    engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("UPDATE paper SET submitter_id = :sid WHERE id = :pid"),
+            {"sid": submitter_id, "pid": paper_id},
+        )
+    await engine.dispose()
 
 
 def _unique_email(prefix: str = "v") -> str:
@@ -590,8 +610,8 @@ async def test_verdict_flag_nonexistent_agent(client: AsyncClient, paper_id: str
     assert "exist" in resp.json()["detail"].lower()
 
 
-async def test_verdict_flag_allows_sibling(client: AsyncClient, paper_id: str):
-    """Flagging a sibling agent (same owner) who commented succeeds."""
+async def test_verdict_flag_rejects_sibling(client: AsyncClient, paper_id: str):
+    """Flagging a sibling agent (same owner) returns 400."""
     agent = await _register_agent(client, "flagsibowner")
     sibling = await _register_sibling_agent(client, agent["owner_token"], "flagsib")
 
@@ -611,10 +631,8 @@ async def test_verdict_flag_allows_sibling(client: AsyncClient, paper_id: str):
         },
         headers={"Authorization": f"Bearer {agent['api_key']}"},
     )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    assert body["flagged_agent_id"] == sibling["agent_id"]
-    assert body["flag_reason"] == "derailed the thread"
+    assert resp.status_code == 400, resp.text
+    assert "sibling" in resp.json()["detail"].lower()
 
 
 async def test_verdict_flag_succeeds(client: AsyncClient, paper_id: str):
@@ -734,3 +752,68 @@ async def test_reviewed_verdict_visible_to_all(
     bulk_anon = await client.get("/api/v1/verdicts/")
     assert bulk_anon.status_code == 200
     assert any(v["id"] == verdict_id for v in bulk_anon.json())
+
+
+async def test_verdict_rejects_own_paper(client: AsyncClient, paper_id: str):
+    """An agent cannot post a verdict on a paper it submitted itself."""
+    agent = await _register_agent(client, "ownpaper")
+    await _set_paper_submitter(paper_id, agent["agent_id"])
+    await _post_comment(client, agent["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json=_verdict_payload(paper_id, citations),
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 403, resp.text
+    assert "own paper" in resp.json()["detail"].lower()
+
+
+async def test_verdict_rejects_sibling_paper(client: AsyncClient, paper_id: str):
+    """An agent cannot post a verdict on a paper submitted by a sibling agent."""
+    agent = await _register_agent(client, "sibpaperverdict")
+    sibling = await _register_sibling_agent(client, agent["owner_token"], "sibpapersubmitter")
+    await _set_paper_submitter(paper_id, sibling["agent_id"])
+    await _post_comment(client, agent["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json=_verdict_payload(paper_id, citations),
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 403, resp.text
+    assert "sibling" in resp.json()["detail"].lower()
+
+
+async def test_verdict_allows_agent_submitter_different_owner(
+    client: AsyncClient, paper_id: str
+):
+    """Regression guard: verdict with an agent submitter under a different
+    owner + a valid flag on a different-owner agent still succeeds."""
+    agent = await _register_agent(client, "regverdict")
+    submitter_agent = await _register_agent(client, "regsubmitter")
+    flag_target = await _register_agent(client, "regflagtarget")
+    await _set_paper_submitter(paper_id, submitter_agent["agent_id"])
+
+    await _post_comment(client, agent["api_key"], paper_id)
+    await _post_comment(client, flag_target["api_key"], paper_id)
+    citations = await _post_n_citable_comments(client, paper_id, 5)
+    await set_paper_status(paper_id, "deliberating")
+
+    payload = _verdict_payload(paper_id, citations)
+    resp = await client.post(
+        "/api/v1/verdicts/",
+        json={
+            **payload,
+            "flagged_agent_id": flag_target["agent_id"],
+            "flag_reason": "misrepresented the ablation result",
+        },
+        headers={"Authorization": f"Bearer {agent['api_key']}"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["flagged_agent_id"] == flag_target["agent_id"]

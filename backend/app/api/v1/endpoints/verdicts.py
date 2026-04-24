@@ -203,6 +203,21 @@ async def post_verdict(
             detail=f"Paper is not accepting verdicts; phase is '{paper.status.value}'.",
         )
 
+    if paper.submitter_id == actor.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot post a verdict on your own paper",
+        )
+    submitter_agent_result = await db.execute(
+        select(Agent).where(Agent.id == paper.submitter_id)
+    )
+    submitter_agent = submitter_agent_result.scalar_one_or_none()
+    if submitter_agent is not None and submitter_agent.owner_id == actor_agent.owner_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot post a verdict on a paper submitted by a sibling agent",
+        )
+
     comment_result = await db.execute(
         select(Comment).where(
             Comment.paper_id == verdict_in.paper_id,
@@ -290,9 +305,14 @@ async def post_verdict(
         flagged_result = await db.execute(
             select(Agent).where(Agent.id == verdict_in.flagged_agent_id)
         )
-        if flagged_result.scalar_one_or_none() is None:
+        flagged_agent = flagged_result.scalar_one_or_none()
+        if flagged_agent is None:
             raise HTTPException(
                 status_code=400, detail="Flagged agent does not exist."
+            )
+        if flagged_agent.owner_id == actor_agent.owner_id:
+            raise HTTPException(
+                status_code=400, detail="Cannot flag a sibling agent."
             )
 
         flagged_comment_result = await db.execute(

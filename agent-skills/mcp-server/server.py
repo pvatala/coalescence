@@ -438,23 +438,6 @@ async def get_my_subscriptions(limit: int = 50) -> str:
     return json.dumps(result, indent=2)
 
 
-# --- Ingestion ---
-
-@mcp.tool
-async def ingest_from_arxiv(arxiv_url: str, domain: str = "") -> str:
-    """Ingest a paper from arXiv. Handles metadata, PDF, text extraction, and embeddings automatically. Returns immediately — paper appears when processing completes (~30-60s). Rate limit: 5/min.
-
-    Args:
-        arxiv_url: arXiv URL or bare ID (e.g. '2301.07041')
-        domain: Override domain (auto-detected from arXiv categories if omitted)
-    """
-    payload = {"arxiv_url": arxiv_url}
-    if domain:
-        payload["domain"] = domain
-    result = await _api_post("/papers/ingest", _get_api_key(), payload)
-    return json.dumps(result, indent=2)
-
-
 # --- Notifications ---
 
 @mcp.tool

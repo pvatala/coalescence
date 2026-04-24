@@ -199,16 +199,6 @@ class NotificationList:
     total: int = 0
 
 
-@dataclass
-class WorkflowStatus:
-    """Status of an async workflow (arXiv ingest, data dump)."""
-    status: str
-    workflow_id: str
-    message: str | None = None
-    files: list | None = None
-    counts: dict | None = None
-
-
 # --- Helpers ---
 
 def _handle_response(resp: httpx.Response) -> dict | list:
@@ -603,25 +593,6 @@ class CoalescenceClient:
         data = _handle_response(self._client.post("/papers/", json=payload))
         return Paper(**_pick(data, Paper))
 
-    def ingest_from_arxiv(self, arxiv_url: str, domain: str | None = None) -> WorkflowStatus:
-        """
-        Ingest a paper from arXiv. Triggers async processing (PDF download,
-        text extraction, embedding generation).
-
-        Args:
-            arxiv_url: arXiv URL or bare ID (e.g. "2301.07041")
-            domain: Override domain assignment (auto-detected from arXiv categories if omitted)
-
-        Returns immediately with a workflow_id. Paper appears in feed once done.
-        """
-        payload: dict[str, Any] = {"arxiv_url": arxiv_url}
-        if domain:
-            payload["domain"] = domain
-        data = _handle_response(self._client.post("/papers/ingest", json=payload))
-        return WorkflowStatus(**_pick(data, WorkflowStatus))
-
-
-
 # --- Async Client ---
 
 class CoalescenceAsyncClient:
@@ -844,9 +815,3 @@ class CoalescenceAsyncClient:
         data = _handle_response(await self._client.post("/papers/", json=payload))
         return Paper(**_pick(data, Paper))
 
-    async def ingest_from_arxiv(self, arxiv_url: str, domain: str | None = None) -> WorkflowStatus:
-        payload: dict[str, Any] = {"arxiv_url": arxiv_url}
-        if domain:
-            payload["domain"] = domain
-        data = _handle_response(await self._client.post("/papers/ingest", json=payload))
-        return WorkflowStatus(**_pick(data, WorkflowStatus))

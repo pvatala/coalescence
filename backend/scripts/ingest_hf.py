@@ -3,11 +3,16 @@ Ingest papers from the McGill-NLP/koala-science-icml-2026-competition HF dataset
 
 Uses the anonymized PDFs shipped inside the dataset repo rather than fetching
 from arxiv.org. Each paper ends up with:
-  - PDF bytes saved to the storage backend at pdfs/<arxiv_id>.pdf
-  - pdf_url set to the local storage path (same convention the arXiv workflow uses)
+  - A platform UUID generated up-front, used as the Paper.id AND as the
+    storage key stem (pdfs/<paper_id>.pdf, tarballs/<paper_id>.tar.gz),
+    matching the convention used by the user-upload path in papers.py.
   - full_text extracted via PyMuPDF (100KB cap, null bytes stripped)
   - preview_image_url extracted via app.core.pdf_preview
   - A Temporal EmbeddingGenerationWorkflow kicked off (best-effort)
+
+Idempotency: arxiv_id is a UNIQUE column on the paper table. We check before
+insert (and the DB constraint backstops races). Safe to re-run after a
+mid-window code push; already-ingested papers are skipped.
 
 Usage (inside the backend container):
     python -m scripts.ingest_hf                         # first 10 rows
@@ -16,6 +21,9 @@ Usage (inside the backend container):
     python -m scripts.ingest_hf --submitter-email me@x  # pick the owning human
     python -m scripts.ingest_hf --skip-embeddings       # don't touch Temporal
     python -m scripts.ingest_hf --no-arxiv-id           # omit arxiv_id metadata
+    python -m scripts.ingest_hf --pending               # hide from public feed
+                                                        # until release cron flips
+                                                        # released_at
 """
 from __future__ import annotations
 
@@ -24,6 +32,7 @@ import asyncio
 import re
 import tempfile
 import uuid as _uuid
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -207,6 +216,7 @@ async def ingest(
     submitter_email: str | None,
     skip_embeddings: bool,
     keep_arxiv_id: bool,
+    pending: bool,
 ) -> None:
     rows = _load_rows(limit)
 
@@ -227,15 +237,25 @@ async def ingest(
 
         for row in rows:
             arxiv_id = row["arxiv_id"]
+            openreview_id = row.get("openreview_id")
 
+            # Dedup key precedence: arxiv_id (if retained) > openreview_id
+            # (always present in the HF dataset). Without this fallback,
+            # --no-arxiv-id runs re-ingest every row on every re-run.
             if keep_arxiv_id:
-                existing = await session.execute(
-                    select(Paper).where(Paper.arxiv_id == arxiv_id)
-                )
-                if existing.scalar_one_or_none():
-                    print(f"  [skip] {arxiv_id} already exists")
-                    skipped_existing += 1
-                    continue
+                dup_stmt = select(Paper).where(Paper.arxiv_id == arxiv_id)
+            elif openreview_id:
+                dup_stmt = select(Paper).where(Paper.openreview_id == openreview_id)
+            else:
+                print(f"  [miss] {arxiv_id}: no openreview_id to dedup on; skipping")
+                skipped_missing_pdf += 1
+                continue
+
+            existing = await session.execute(dup_stmt)
+            if existing.scalar_one_or_none():
+                print(f"  [skip] {arxiv_id} already exists")
+                skipped_existing += 1
+                continue
 
             pdf_rel = row.get("pdf_path") or f"pdfs/{arxiv_id}.pdf"
             pdf_bytes = _fetch_pdf_bytes(pdf_rel)
@@ -248,8 +268,11 @@ async def ingest(
                 skipped_missing_pdf += 1
                 continue
 
+            # Generate the platform UUID up-front so storage keys use it.
+            paper_id = _uuid.uuid4()
+
             storage_url = await storage.save(
-                f"pdfs/{arxiv_id}.pdf", pdf_bytes, content_type="application/pdf"
+                f"pdfs/{paper_id}.pdf", pdf_bytes, content_type="application/pdf"
             )
 
             tarball_url: str | None = None
@@ -258,7 +281,7 @@ async def ingest(
                 tar_bytes = _fetch_pdf_bytes(tar_rel)
                 if tar_bytes:
                     tarball_url = await storage.save(
-                        f"tarballs/{arxiv_id}.tar.gz",
+                        f"tarballs/{paper_id}.tar.gz",
                         tar_bytes,
                         content_type="application/gzip",
                     )
@@ -281,19 +304,26 @@ async def ingest(
             authors = row.get("authors") or []
             github_urls = row.get("github_urls") or []
 
+            # Pending papers stay hidden (released_at=NULL) until the release
+            # cron flips them; non-pending runs publish immediately.
+            released_at = None if pending else datetime.utcnow()
+
             paper = Paper(
+                id=paper_id,
                 title=row["title"],
                 abstract=row.get("abstract") or "",
                 domains=list(domains),
                 pdf_url=storage_url,
                 tarball_url=tarball_url,
                 arxiv_id=arxiv_id if keep_arxiv_id else None,
+                openreview_id=openreview_id,
                 authors=list(authors),
                 submitter_id=submitter.id,
                 full_text=full_text,
                 preview_image_url=preview_url,
                 github_repo_url=github_urls[0] if github_urls else None,
                 github_urls=list(github_urls),
+                released_at=released_at,
             )
             session.add(paper)
             await session.flush()
@@ -325,6 +355,12 @@ def main():
     p.add_argument("--submitter-email", default=None, help="Email of human owner (defaults to first superuser)")
     p.add_argument("--skip-embeddings", action="store_true")
     p.add_argument("--no-arxiv-id", action="store_true", help="Omit arxiv_id (fully anonymous)")
+    p.add_argument(
+        "--pending",
+        action="store_true",
+        help="Ingest with released_at=NULL so papers are hidden from public "
+             "endpoints until the release cron flips them",
+    )
     args = p.parse_args()
 
     asyncio.run(
@@ -333,6 +369,7 @@ def main():
             submitter_email=args.submitter_email,
             skip_embeddings=args.skip_embeddings,
             keep_arxiv_id=not args.no_arxiv_id,
+            pending=args.pending,
         )
     )
 

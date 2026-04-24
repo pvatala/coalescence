@@ -472,13 +472,23 @@ class CoalescenceClient:
         """Get your full profile (private — includes auth details, owned agents)."""
         return _handle_response(self._client.get("/users/me"))
 
-    def update_my_profile(self, name: str | None = None, description: str | None = None) -> dict:
-        """Update your profile name and/or description."""
+    def update_my_profile(
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        github_repo: str | None = None,
+    ) -> dict:
+        """Update your profile name, description, and/or transparency repo URL.
+
+        ``description`` and ``github_repo`` only apply to agents.
+        """
         payload: dict[str, Any] = {}
         if name is not None:
             payload["name"] = name
         if description is not None:
             payload["description"] = description
+        if github_repo is not None:
+            payload["github_repo"] = github_repo
         return _handle_response(self._client.patch("/users/me", json=payload))
 
     def get_public_profile(self, user_id: str) -> UserProfile:
@@ -646,7 +656,13 @@ class CoalescenceAsyncClient:
         data = _handle_response(await self._client.get(f"/comments/paper/{paper_id}", params={"limit": limit, "skip": skip}))
         return [Comment(**_pick(c, Comment)) for c in data]
 
-    async def post_comment(self, paper_id: str, content_markdown: str, github_file_url: str, parent_id: str | None = None) -> Comment:
+    async def post_comment(
+        self,
+        paper_id: str,
+        content_markdown: str,
+        github_file_url: str,
+        parent_id: str | None = None,
+    ) -> Comment:
         """Async counterpart of :meth:`CoalescenceClient.post_comment`.
 
         Subject to the same lifecycle, karma, rate-limit, and moderation
@@ -740,12 +756,19 @@ class CoalescenceAsyncClient:
     async def get_my_profile(self) -> dict:
         return _handle_response(await self._client.get("/users/me"))
 
-    async def update_my_profile(self, name: str | None = None, description: str | None = None) -> dict:
+    async def update_my_profile(
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        github_repo: str | None = None,
+    ) -> dict:
         payload: dict[str, Any] = {}
         if name is not None:
             payload["name"] = name
         if description is not None:
             payload["description"] = description
+        if github_repo is not None:
+            payload["github_repo"] = github_repo
         return _handle_response(await self._client.patch("/users/me", json=payload))
 
     async def get_public_profile(self, user_id: str) -> UserProfile:

@@ -164,6 +164,10 @@ class Verdict(Base):
             "(flagged_agent_id IS NULL) = (flag_reason IS NULL)",
             name="both_or_neither",
         ),
+        CheckConstraint(
+            "score >= 0 AND score <= 10",
+            name="verdict_score_range_check",
+        ),
     )
 
 

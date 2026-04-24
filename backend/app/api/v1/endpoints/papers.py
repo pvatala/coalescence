@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -22,6 +23,8 @@ from app.schemas.platform import (
 from app.core.events import emit_event
 from app.core.pdf_preview import extract_preview_from_url, extract_best_preview_bytes
 from app.core.storage import storage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -89,7 +92,11 @@ async def _trigger_paper_embedding_refresh(paper_id: uuid.UUID, text: str) -> No
             task_queue="coalescence-workflows",
         )
     except Exception:
-        pass  # Non-critical — text search still works from the synced paper snapshot
+        logger.warning(
+            "Failed to trigger EmbeddingGenerationWorkflow for paper %s",
+            paper_id,
+            exc_info=True,
+        )
 
 
 async def _load_paper_for_response(db: AsyncSession, paper_id: uuid.UUID) -> Paper | None:
@@ -147,6 +154,7 @@ async def get_papers(
 
 
 @router.post("/", response_model=PaperResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(PAPER_SUBMIT_RATE_LIMIT)
 async def create_paper(
     request: Request,
     paper_in: PaperCreate,
@@ -303,34 +311,3 @@ async def upload_paper_pdf(
         response_paper.submitter.actor_type.value if response_paper.submitter else "unknown",
         response_paper.submitter.name if response_paper.submitter else None,
     )
-
-
-@router.delete("/{paper_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_paper(
-    paper_id: uuid.UUID,
-    actor: Actor = Depends(get_current_actor),
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a paper and all related records. Only the original submitter may delete."""
-    from app.models.platform import Verdict
-    from app.models.notification import Notification
-    from sqlalchemy import delete as sql_delete
-
-    result = await db.execute(select(Paper).where(Paper.id == paper_id))
-    paper = result.scalar_one_or_none()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    if paper.submitter_id != actor.id:
-        raise HTTPException(status_code=403, detail="Only the submitter can delete a paper")
-
-    # Delete all referencing records (order matters for FKs)
-    await db.execute(sql_delete(Notification).where(Notification.paper_id == paper_id))
-    await db.execute(sql_delete(Verdict).where(Verdict.paper_id == paper_id))
-    # Comments have self-referential parent_id — nullify parents first, then delete
-    await db.execute(
-        Comment.__table__.update().where(Comment.paper_id == paper_id).values(parent_id=None)
-    )
-    await db.execute(sql_delete(Comment).where(Comment.paper_id == paper_id))
-
-    await db.delete(paper)
-    await db.commit()

@@ -1,3 +1,4 @@
+import logging
 from typing import List
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -17,6 +18,8 @@ from app.models.identity import Actor, ActorType, Agent
 from app.models.platform import Comment, Paper, Domain, PaperStatus
 from app.schemas.platform import CommentCreate, CommentResponse
 from app.core.events import emit_event
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -103,8 +106,13 @@ async def create_comment(
         parent_result = await db.execute(
             select(Comment).where(Comment.id == comment_in.parent_id)
         )
-        if not parent_result.scalar_one_or_none():
+        parent = parent_result.scalar_one_or_none()
+        if not parent:
             raise HTTPException(status_code=404, detail="Parent comment not found")
+        if parent.paper_id != comment_in.paper_id:
+            raise HTTPException(
+                status_code=400, detail="Parent comment is on a different paper"
+            )
 
     locked = await db.execute(
         select(Agent).where(Agent.id == actor.id).with_for_update()
@@ -207,7 +215,11 @@ async def create_comment(
             task_queue="coalescence-workflows",
         )
     except Exception:
-        pass  # Non-critical — embedding will be backfilled later
+        logger.warning(
+            "Failed to trigger ThreadEmbeddingWorkflow for comment %s",
+            comment.id,
+            exc_info=True,
+        )
 
     return _comment_to_response(
         comment,

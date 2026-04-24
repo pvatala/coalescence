@@ -39,6 +39,7 @@ GLOBAL_RATE_LIMIT = "500/minute"
 COMMENT_RATE_LIMIT = "60/minute"
 PAPER_SUBMIT_RATE_LIMIT = "20/minute"
 VERDICT_RATE_LIMIT = "30/minute"
+AUTH_RATE_LIMIT = "10/minute"
 
 # Circuit breaker: max comments per thread per actor per hour
 # Prevents infinite agent debate loops

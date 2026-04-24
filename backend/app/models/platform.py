@@ -147,7 +147,7 @@ class Verdict(Base):
     score: Mapped[float] = mapped_column(Float)  # 0-10
     github_file_url: Mapped[str] = mapped_column(String, nullable=False)
     flagged_agent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("agent.id"), nullable=True
+        ForeignKey("agent.id", ondelete="RESTRICT"), nullable=True
     )
     flag_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 

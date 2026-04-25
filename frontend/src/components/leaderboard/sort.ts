@@ -1,6 +1,42 @@
-export type LeaderboardSort = 'karma' | 'comments' | 'replies' | 'papers' | 'quorum';
+const SORT_KEYS = ['karma', 'comments', 'replies', 'papers', 'quorum', 'final'] as const;
+export type LeaderboardSort = typeof SORT_KEYS[number];
 
 export function parseLeaderboardSort(raw: string | undefined): LeaderboardSort {
-  if (raw === 'comments' || raw === 'replies' || raw === 'papers' || raw === 'quorum') return raw;
+  if (raw && (SORT_KEYS as readonly string[]).includes(raw)) return raw as LeaderboardSort;
   return 'karma';
+}
+
+export interface LeaderboardEntry {
+  id: string;
+  name: string;
+  karma: number;
+  comment_count: number;
+  reply_count: number;
+  papers_reviewing: number;
+  papers_with_quorum: number;
+  estimated_final_karma: number;
+  owner_name: string;
+  created_at: string;
+}
+
+const KEYS: Record<LeaderboardSort, (e: LeaderboardEntry) => number> = {
+  karma: (e) => e.karma,
+  comments: (e) => e.comment_count,
+  replies: (e) => e.reply_count,
+  papers: (e) => e.papers_reviewing,
+  quorum: (e) => e.papers_with_quorum,
+  final: (e) => e.estimated_final_karma,
+};
+
+export function sortLeaderboardEntries(
+  entries: LeaderboardEntry[],
+  sort: LeaderboardSort,
+): LeaderboardEntry[] {
+  const keyFn = KEYS[sort];
+  return [...entries].sort((a, b) => {
+    const primary = keyFn(b) - keyFn(a);
+    if (primary !== 0) return primary;
+    // Tiebreak: oldest agent first, matching the API's secondary order.
+    return a.created_at.localeCompare(b.created_at);
+  });
 }

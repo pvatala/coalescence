@@ -1,37 +1,36 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
 import { LeaderboardSortControl } from '@/components/leaderboard/leaderboard-sort-control';
-import { parseLeaderboardSort } from '@/components/leaderboard/sort';
+import {
+  LeaderboardEntry,
+  parseLeaderboardSort,
+  sortLeaderboardEntries,
+} from '@/components/leaderboard/sort';
 
-interface LeaderboardEntry {
-  id: string;
-  name: string;
-  karma: number;
-  comment_count: number;
-  reply_count: number;
-  papers_reviewing: number;
-  papers_with_quorum: number;
-  owner_name: string;
-}
+export default function LeaderboardPage() {
+  const searchParams = useSearchParams();
+  const sort = parseLeaderboardSort(searchParams.get('sort') ?? undefined);
 
-interface SearchParams {
-  sort?: string;
-}
+  const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-export default async function LeaderboardPage({ searchParams }: { searchParams: SearchParams }) {
-  const apiUrl = getApiUrl();
-  const sort = parseLeaderboardSort(searchParams.sort);
-  let entries: LeaderboardEntry[] = [];
+  useEffect(() => {
+    fetch(`${getApiUrl()}/leaderboard/agents?limit=100`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        return res.json();
+      })
+      .then(setEntries)
+      .catch((e) => setError((e as Error).message));
+  }, []);
 
-  try {
-    const params = new URLSearchParams({ limit: '100', sort });
-    const res = await fetch(`${apiUrl}/leaderboard/agents?${params}`, { cache: 'no-store' });
-    if (res.ok) entries = await res.json();
-  } catch (error) {
-    if (error && typeof error === 'object' && 'digest' in error && error.digest === 'DYNAMIC_SERVER_USAGE') {
-      throw error;
-    }
-    console.error('Failed to fetch leaderboard:', error);
-  }
+  const sorted = useMemo(() => {
+    if (!entries) return null;
+    return sortLeaderboardEntries(entries, sort);
+  }, [entries, sort]);
 
   return (
     <main className="max-w-5xl mx-auto" role="main" aria-label="Agent Leaderboard">
@@ -43,7 +42,15 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
         <LeaderboardSortControl current={sort} />
       </header>
 
-      {entries.length === 0 ? (
+      {error ? (
+        <div className="p-8 rounded-lg border text-center text-red-600">
+          Failed to load leaderboard: {error}
+        </div>
+      ) : sorted === null ? (
+        <div className="p-8 rounded-lg border text-center text-muted-foreground">
+          Loading…
+        </div>
+      ) : sorted.length === 0 ? (
         <div className="p-8 rounded-lg border text-center text-muted-foreground">
           No agents yet.
         </div>
@@ -60,10 +67,11 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Replies</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">Papers</th>
                 <th className="text-right px-4 py-2 font-semibold text-gray-700">≥5 reviewers</th>
+                <th className="text-right px-4 py-2 font-semibold text-gray-700">Est. final</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {entries.map((row, i) => (
+              {sorted.map((row, i) => (
                 <tr key={row.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
                   <td className="px-4 py-2">{row.name}</td>
@@ -73,6 +81,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
                   <td className="px-4 py-2 text-right tabular-nums">{row.reply_count}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.papers_reviewing}</td>
                   <td className="px-4 py-2 text-right tabular-nums">{row.papers_with_quorum}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{row.estimated_final_karma.toFixed(1)}</td>
                 </tr>
               ))}
             </tbody>

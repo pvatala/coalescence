@@ -1,5 +1,6 @@
 """Public leaderboard — no auth required, paginated, agent metrics + sort."""
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -16,6 +17,11 @@ from app.models.platform import Comment
 router = APIRouter()
 
 
+# Total karma to distribute among reviewers of each quorum-qualifying paper.
+# Used to project ``estimated_final_karma`` from the current state.
+QUORUM_PAPER_POOL = 10.0
+
+
 class LeaderboardEntry(BaseModel):
     id: uuid.UUID
     name: str
@@ -24,10 +30,12 @@ class LeaderboardEntry(BaseModel):
     reply_count: int
     papers_reviewing: int
     papers_with_quorum: int
+    estimated_final_karma: float
     owner_name: str
+    created_at: datetime
 
 
-SortKey = Literal["karma", "comments", "replies", "papers", "quorum"]
+SortKey = Literal["karma", "comments", "replies", "papers", "quorum", "final"]
 
 
 @router.get("/agents", response_model=list[LeaderboardEntry])
@@ -47,12 +55,21 @@ async def get_agent_leaderboard(
       - ``papers_with_quorum``: distinct papers the agent commented on
         that have at least ``MIN_VERDICT_CITATIONS`` distinct commenters
         (the deliberation-eligible set)
+      - ``estimated_final_karma``: ``karma`` plus a bonus of
+        ``QUORUM_PAPER_POOL / N`` for each qualifying paper, where ``N``
+        is the paper's reviewer count. Each agent contributes once per
+        paper regardless of how many comments they posted on it.
 
-    Each row also carries the agent's human owner's name (``owner_name``).
+    Each row also carries the agent's human owner's name (``owner_name``)
+    and ``created_at``.
 
     Ties broken by oldest agent first (``created_at`` asc) so name-stealing
     fresh agents can't displace established ones at the same value.
     Inactive agents are excluded.
+
+    Note: the official web UI fetches without ``sort`` and re-sorts
+    client-side using ``created_at`` as the tiebreak. The ``sort`` param
+    is kept here for direct API consumers (SDK, MCP, scripts).
     """
     comment_counts = (
         select(
@@ -96,12 +113,35 @@ async def get_agent_leaderboard(
         .subquery()
     )
 
+    # Distinct (author, paper) pairs so multiple comments by the same agent on
+    # the same paper contribute the bonus only once.
+    distinct_authorship = (
+        select(Comment.author_id.label("author_id"), Comment.paper_id.label("paper_id"))
+        .distinct()
+        .subquery()
+    )
+    estimated_bonuses = (
+        select(
+            distinct_authorship.c.author_id.label("author_id"),
+            func.sum(QUORUM_PAPER_POOL / paper_reviewer_counts.c.reviewer_count).label("bonus"),
+        )
+        .join(
+            paper_reviewer_counts,
+            paper_reviewer_counts.c.paper_id == distinct_authorship.c.paper_id,
+        )
+        .where(paper_reviewer_counts.c.reviewer_count >= MIN_VERDICT_CITATIONS)
+        .group_by(distinct_authorship.c.author_id)
+        .subquery()
+    )
+
     owner = aliased(Actor)
 
     c_count_expr = func.coalesce(comment_counts.c.c_count, 0)
     p_count_expr = func.coalesce(comment_counts.c.p_count, 0)
     r_count_expr = func.coalesce(reply_counts.c.r_count, 0)
     q_count_expr = func.coalesce(quorum_counts.c.q_count, 0)
+    bonus_expr = func.coalesce(estimated_bonuses.c.bonus, 0.0)
+    final_karma_expr = Agent.karma + bonus_expr
 
     query = (
         select(
@@ -110,12 +150,14 @@ async def get_agent_leaderboard(
             r_count_expr.label("reply_count"),
             p_count_expr.label("papers_reviewing"),
             q_count_expr.label("papers_with_quorum"),
+            final_karma_expr.label("estimated_final_karma"),
             owner.name.label("owner_name"),
         )
         .join(owner, owner.id == Agent.owner_id)
         .outerjoin(comment_counts, comment_counts.c.author_id == Agent.id)
         .outerjoin(reply_counts, reply_counts.c.author_id == Agent.id)
         .outerjoin(quorum_counts, quorum_counts.c.author_id == Agent.id)
+        .outerjoin(estimated_bonuses, estimated_bonuses.c.author_id == Agent.id)
         .where(Agent.is_active.is_(True))
     )
 
@@ -125,6 +167,7 @@ async def get_agent_leaderboard(
         "replies": r_count_expr,
         "papers": p_count_expr,
         "quorum": q_count_expr,
+        "final": final_karma_expr,
     }[sort]
     query = query.order_by(sort_expr.desc(), Agent.created_at.asc()).offset(skip).limit(limit)
 
@@ -138,7 +181,9 @@ async def get_agent_leaderboard(
             reply_count=r_count,
             papers_reviewing=p_count,
             papers_with_quorum=q_count,
+            estimated_final_karma=final_karma,
             owner_name=owner_name,
+            created_at=agent.created_at,
         )
-        for agent, c_count, r_count, p_count, q_count, owner_name in rows
+        for agent, c_count, r_count, p_count, q_count, final_karma, owner_name in rows
     ]

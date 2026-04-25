@@ -94,15 +94,15 @@ async def test_leaderboard_is_public(client: AsyncClient):
     assert isinstance(resp.json(), list)
 
 
-# Tests use karma >= 1_000_000 so fixtures always land in the top page,
+# Tests use karma >= 9_000_000 so fixtures always land in the top page,
 # regardless of leftover test data in the shared dev DB.
 
 
 async def test_leaderboard_orders_by_karma_desc(client: AsyncClient):
     human, _ = await _make_human()
-    low = await _make_agent(human, name=f"lb_low_{uuid.uuid4().hex[:6]}", karma=1_000_010.0)
-    high = await _make_agent(human, name=f"lb_high_{uuid.uuid4().hex[:6]}", karma=1_000_200.0)
-    mid = await _make_agent(human, name=f"lb_mid_{uuid.uuid4().hex[:6]}", karma=1_000_050.0)
+    low = await _make_agent(human, name=f"lb_low_{uuid.uuid4().hex[:6]}", karma=9_000_010.0)
+    high = await _make_agent(human, name=f"lb_high_{uuid.uuid4().hex[:6]}", karma=9_000_200.0)
+    mid = await _make_agent(human, name=f"lb_mid_{uuid.uuid4().hex[:6]}", karma=9_000_050.0)
 
     resp = await client.get("/api/v1/leaderboard/agents?limit=100")
     assert resp.status_code == 200
@@ -115,10 +115,10 @@ async def test_leaderboard_tiebreaks_by_created_at_asc(client: AsyncClient):
     human, _ = await _make_human()
     base = datetime.utcnow() - timedelta(hours=24)
     older = await _make_agent(
-        human, name=f"lb_older_{uuid.uuid4().hex[:6]}", karma=1_000_500.0, created_at=base,
+        human, name=f"lb_older_{uuid.uuid4().hex[:6]}", karma=9_000_500.0, created_at=base,
     )
     newer = await _make_agent(
-        human, name=f"lb_newer_{uuid.uuid4().hex[:6]}", karma=1_000_500.0,
+        human, name=f"lb_newer_{uuid.uuid4().hex[:6]}", karma=9_000_500.0,
         created_at=base + timedelta(hours=1),
     )
 
@@ -130,9 +130,9 @@ async def test_leaderboard_tiebreaks_by_created_at_asc(client: AsyncClient):
 
 async def test_leaderboard_excludes_inactive_agents(client: AsyncClient):
     human, _ = await _make_human()
-    active = await _make_agent(human, name=f"lb_active_{uuid.uuid4().hex[:6]}", karma=1_000_700.0)
+    active = await _make_agent(human, name=f"lb_active_{uuid.uuid4().hex[:6]}", karma=9_000_700.0)
     banned = await _make_agent(
-        human, name=f"lb_banned_{uuid.uuid4().hex[:6]}", karma=1_000_800.0, is_active=False
+        human, name=f"lb_banned_{uuid.uuid4().hex[:6]}", karma=9_000_800.0, is_active=False
     )
 
     resp = await client.get("/api/v1/leaderboard/agents?limit=100")
@@ -146,7 +146,7 @@ async def test_leaderboard_response_shape(client: AsyncClient):
     """Each row has the expected metric fields and no PII like owner email."""
     human, _ = await _make_human()
     name = f"lb_shape_{uuid.uuid4().hex[:6]}"
-    aid = await _make_agent(human, name=name, karma=1_000_900.0)
+    aid = await _make_agent(human, name=name, karma=9_000_900.0)
 
     resp = await client.get("/api/v1/leaderboard/agents?limit=100")
     assert resp.status_code == 200
@@ -154,10 +154,14 @@ async def test_leaderboard_response_shape(client: AsyncClient):
     assert set(row.keys()) == {
         "id", "name", "karma",
         "comment_count", "reply_count", "papers_reviewing", "papers_with_quorum",
-        "owner_name",
+        "estimated_final_karma", "owner_name", "created_at",
     }
     assert row["name"] == name
-    assert row["karma"] == 1_000_900.0
+    assert row["karma"] == 9_000_900.0
+    # created_at round-trips as a parseable ISO 8601 string so the JS-side
+    # tiebreak (`localeCompare` on these strings) matches the server's
+    # ``created_at ASC`` semantics.
+    datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
 
 
 async def test_leaderboard_counts_are_correct(client: AsyncClient):
@@ -165,8 +169,8 @@ async def test_leaderboard_counts_are_correct(client: AsyncClient):
     rule that self-replies do NOT count as replies received."""
     human, _ = await _make_human()
     other_human, _ = await _make_human()
-    other_agent = await _make_agent(other_human, name=f"lb_other_{uuid.uuid4().hex[:6]}", karma=1_000_000.0)
-    aid = await _make_agent(human, name=f"lb_counts_{uuid.uuid4().hex[:6]}", karma=1_002_000.0)
+    other_agent = await _make_agent(other_human, name=f"lb_other_{uuid.uuid4().hex[:6]}", karma=9_002_050.0)
+    aid = await _make_agent(human, name=f"lb_counts_{uuid.uuid4().hex[:6]}", karma=9_002_000.0)
 
     paper1 = await _make_paper(human)
     paper2 = await _make_paper(human)
@@ -303,6 +307,87 @@ async def test_leaderboard_papers_with_quorum_does_not_count_repeat_comments(cli
     assert row["papers_with_quorum"] == 0
 
 
+async def test_leaderboard_estimated_final_karma_value(client: AsyncClient):
+    """estimated_final_karma = karma + sum_over_qualifying_papers(10 / N)
+    where N is the paper's distinct-reviewer count and qualifying = N >= 5.
+    Every reviewer of a quorum-eligible paper gets the bonus, not just one.
+    """
+    human, _ = await _make_human()
+    aid = await _make_agent(human, name=f"lb_efk_{uuid.uuid4().hex[:6]}", karma=9_002_400.0)
+
+    # Paper with 5 reviewers (aid + 4 others). Each reviewer's bonus from this
+    # paper: 10/5 = 2.0. We track one filler with a uniquely-high karma so we
+    # can find it in the response and assert it also got the bonus.
+    p_quorum = await _make_paper(human)
+    await _make_comment(p_quorum, aid)
+    tracked_filler = await _make_agent(human, name=f"lb_efk_tf_{uuid.uuid4().hex[:6]}", karma=9_002_350.0)
+    await _make_comment(p_quorum, tracked_filler)
+    for _ in range(3):
+        other = await _make_agent(human, name=f"lb_efk_o_{uuid.uuid4().hex[:6]}", karma=1.0)
+        await _make_comment(p_quorum, other)
+
+    # Paper with 4 reviewers (below quorum). aid bonus: 0.
+    p_short = await _make_paper(human)
+    await _make_comment(p_short, aid)
+    for _ in range(3):
+        other = await _make_agent(human, name=f"lb_efk_s_{uuid.uuid4().hex[:6]}", karma=1.0)
+        await _make_comment(p_short, other)
+
+    body = (await client.get("/api/v1/leaderboard/agents?limit=100")).json()
+
+    aid_row = next(r for r in body if r["id"] == aid)
+    assert aid_row["estimated_final_karma"] == 9_002_400.0 + 2.0
+
+    # Symmetry: a fellow reviewer of the same quorum paper also gets +2.0.
+    filler_row = next(r for r in body if r["id"] == tracked_filler)
+    assert filler_row["estimated_final_karma"] == 9_002_350.0 + 2.0
+
+
+async def test_leaderboard_estimated_final_karma_repeat_comments(client: AsyncClient):
+    """Multiple comments by the same agent on a qualifying paper still
+    contribute the bonus exactly once (distinct (author, paper) pairs).
+    """
+    human, _ = await _make_human()
+    aid = await _make_agent(human, name=f"lb_efk2_{uuid.uuid4().hex[:6]}", karma=9_002_700.0)
+    p = await _make_paper(human)
+    # aid comments 3 times
+    for _ in range(3):
+        await _make_comment(p, aid)
+    # plus 4 more distinct agents → 5 total reviewers → quorum
+    for _ in range(4):
+        other = await _make_agent(human, name=f"lb_efk2_o_{uuid.uuid4().hex[:6]}", karma=1.0)
+        await _make_comment(p, other)
+
+    resp = await client.get("/api/v1/leaderboard/agents?limit=100")
+    assert resp.status_code == 200
+    row = next(r for r in resp.json() if r["id"] == aid)
+    assert row["estimated_final_karma"] == 9_002_700.0 + 2.0
+
+
+async def test_leaderboard_sort_by_final(client: AsyncClient):
+    """sort=final orders by estimated_final_karma desc."""
+    human, _ = await _make_human()
+    # Both start at the same karma; high earns 2 quorum-paper bonuses, low earns 1.
+    high = await _make_agent(human, name=f"lb_fhigh_{uuid.uuid4().hex[:6]}", karma=9_003_700.0)
+    low = await _make_agent(human, name=f"lb_flow_{uuid.uuid4().hex[:6]}", karma=9_003_700.0)
+
+    async def _quorum_paper(commenter: str):
+        p = await _make_paper(human)
+        await _make_comment(p, commenter)
+        for _ in range(4):
+            other = await _make_agent(human, name=f"lb_ffill_{uuid.uuid4().hex[:6]}", karma=1.0)
+            await _make_comment(p, other)
+
+    await _quorum_paper(high)
+    await _quorum_paper(high)
+    await _quorum_paper(low)
+
+    resp = await client.get("/api/v1/leaderboard/agents?sort=final&limit=100")
+    assert resp.status_code == 200
+    mine = [r["id"] for r in resp.json() if r["id"] in {high, low}]
+    assert mine == [high, low], f"expected high before low when sort=final; got {mine}"
+
+
 async def test_leaderboard_sort_by_quorum(client: AsyncClient):
     """sort=quorum orders by papers_with_quorum desc.
 
@@ -312,8 +397,8 @@ async def test_leaderboard_sort_by_quorum(client: AsyncClient):
     the sort. Cost: 3 quorum papers for high + 2 for low (15 commenters total).
     """
     human, _ = await _make_human()
-    high = await _make_agent(human, name=f"lb_qhigh_{uuid.uuid4().hex[:6]}", karma=1_003_000.0)
-    low = await _make_agent(human, name=f"lb_qlow_{uuid.uuid4().hex[:6]}", karma=1_003_500.0)
+    high = await _make_agent(human, name=f"lb_qhigh_{uuid.uuid4().hex[:6]}", karma=9_003_000.0)
+    low = await _make_agent(human, name=f"lb_qlow_{uuid.uuid4().hex[:6]}", karma=9_003_500.0)
 
     async def _quorum_paper(commenter: str):
         p = await _make_paper(human)
@@ -344,7 +429,7 @@ async def test_leaderboard_pagination(client: AsyncClient):
         await _make_agent(
             human,
             name=f"lb_pag_{uuid.uuid4().hex[:6]}",
-            karma=1_001_000.0 - i,
+            karma=9_001_000.0 - i,
             created_at=base + timedelta(seconds=i),
         )
 

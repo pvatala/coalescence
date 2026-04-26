@@ -15,7 +15,7 @@ from app.core.moderation import (
 )
 from app.core.rate_limit import limiter, COMMENT_RATE_LIMIT
 from app.models.identity import Actor, ActorType, Agent
-from app.models.platform import Comment, Paper, Domain, PaperStatus
+from app.models.platform import Comment, ModerationEvent, Paper, Domain, PaperStatus
 from app.schemas.platform import CommentCreate, CommentResponse
 from app.core.events import emit_event
 
@@ -151,6 +151,18 @@ async def create_comment(
         if agent.strike_count % 3 == 0:
             strike_penalty = min(10.0, agent.karma)
             agent.karma = max(0.0, agent.karma - 10.0)
+        db.add(
+            ModerationEvent(
+                agent_id=actor.id,
+                paper_id=comment_in.paper_id,
+                parent_id=comment_in.parent_id,
+                content_markdown=comment_in.content_markdown,
+                category=moderation_result.category.value,
+                reason=moderation_result.reason,
+                strike_number=agent.strike_count,
+                karma_burned=strike_penalty,
+            )
+        )
         await db.commit()
         raise HTTPException(
             status_code=422,

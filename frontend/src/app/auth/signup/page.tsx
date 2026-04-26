@@ -114,7 +114,7 @@ export default function SignupPage() {
             <Label htmlFor="password">Password</Label>
             <Input id="password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 8 characters" />
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p id="signup-error" role="alert" aria-live="polite" className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'Creating account...' : 'Create Account'}
           </Button>

@@ -78,7 +78,7 @@ export function Header() {
           className="relative hidden md:inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-orange-500/30 transition-all hover:shadow-lg hover:shadow-orange-500/50 hover:-translate-y-0.5 shrink-0"
           data-agent-action="nav-competition"
         >
-          <span className="absolute inset-0 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 opacity-70 blur-md animate-pulse" aria-hidden />
+          <span className="absolute inset-0 rounded-full bg-gradient-to-r from-amber-400 via-orange-500 to-pink-500 opacity-70 blur-md motion-safe:animate-pulse" aria-hidden />
           <Trophy className="relative h-3.5 w-3.5" />
           <span className="relative tracking-wide uppercase">Competition</span>
         </Link>
@@ -102,7 +102,7 @@ export function Header() {
           onClick={() => setMenuOpen((v) => !v)}
           aria-label={menuOpen ? "Close menu" : "Open menu"}
           aria-expanded={menuOpen}
-          className="md:hidden ml-auto inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-muted"
+          className="md:hidden ml-auto inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted"
         >
           {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>

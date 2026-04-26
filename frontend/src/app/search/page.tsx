@@ -3,14 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, MessageSquare, ChevronDown } from 'lucide-react';
+import { MessageSquare, ChevronDown } from 'lucide-react';
 import { apiCall } from '@/lib/api';
 import { cn, timeAgo } from '@/lib/utils';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { Markdown } from '@/components/shared/markdown';
 import { LaTeX } from '@/components/shared/latex';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 
 const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
 
@@ -115,11 +113,6 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [searchInput, setSearchInput] = useState(query);
-
-  useEffect(() => {
-    setSearchInput(query);
-  }, [query]);
 
   const buildParams = (skip: number) => {
     const params = new URLSearchParams({ q: query, limit: String(LIMIT), skip: String(skip) });
@@ -173,37 +166,16 @@ export default function SearchPage() {
     router.push(`/search?${params}`);
   }
 
-  function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (searchInput.trim()) {
-      updateParam('q', searchInput.trim());
-    }
-  }
-
   const paperCount = results.filter((r) => r.type === 'paper').length;
   const threadCount = results.filter((r) => r.type === 'thread').length;
 
   return (
     <main className="max-w-3xl mx-auto space-y-4">
-      {/* Search bar */}
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search papers and discussions..."
-            className="pl-9"
-          />
-        </div>
-        <Button type="submit" disabled={!searchInput.trim()}>Search</Button>
-      </form>
-
       {query && (
         <>
-          {/* Filter bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-0 sm:border-b">
-            <nav className="flex flex-wrap gap-1.5 sm:gap-6 sm:flex-nowrap">
+          {/* Filter bar — pill chips at all widths */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <nav className="flex flex-wrap gap-1.5">
               {TYPE_TABS.map((tab) => {
                 const isActive = type === tab.value || (tab.value === 'all' && !type);
                 return (
@@ -211,12 +183,10 @@ export default function SearchPage() {
                     key={tab.value}
                     onClick={() => updateParam('type', tab.value === 'all' ? '' : tab.value)}
                     className={cn(
-                      'text-xs sm:text-sm font-medium transition-colors',
-                      // Mobile: pill style. Desktop (sm+): underline tab.
-                      'rounded-full border px-3 py-1 sm:rounded-none sm:border-0 sm:border-b-2 sm:px-0 sm:py-0 sm:pb-2 sm:-mb-px',
+                      'rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition-colors',
                       isActive
-                        ? 'border-primary bg-primary/5 text-primary sm:bg-transparent'
-                        : 'border-border text-muted-foreground hover:text-foreground sm:border-transparent'
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
                     )}
                   >
                     {tab.label}
@@ -228,14 +198,14 @@ export default function SearchPage() {
             <select
               value={time}
               onChange={(e) => updateParam('time', e.target.value)}
-              className="text-xs bg-transparent border rounded px-2 py-1 text-muted-foreground sm:mb-2"
+              className="text-xs sm:text-sm bg-transparent border rounded-full px-3 py-1 text-muted-foreground"
             >
               {TIME_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>
-          <div className="sm:hidden border-b" />
+          <div className="border-b" />
 
           {/* Results summary */}
           <p className="text-sm text-muted-foreground">
@@ -292,10 +262,10 @@ export default function SearchPage() {
 
 
 const TYPE_BADGE_STYLES = {
-  paper: 'bg-blue-50 text-blue-700 border-blue-200',
-  thread: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  actor: 'bg-purple-50 text-purple-700 border-purple-200',
-  domain: 'bg-amber-50 text-amber-700 border-amber-200',
+  paper: 'bg-blue-50 text-blue-800 border-blue-200',
+  thread: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  actor: 'bg-purple-50 text-purple-800 border-purple-200',
+  domain: 'bg-amber-50 text-amber-900 border-amber-200',
 } as const;
 
 function TypeBadge({ kind, label }: { kind: keyof typeof TYPE_BADGE_STYLES; label: string }) {
@@ -319,7 +289,7 @@ function DomainChips({ domains }: { domains: string[] }) {
         <Link
           key={d}
           href={`/d/${d.replace('d/', '')}`}
-          className="text-[11px] font-mono text-slate-600 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded transition-colors"
+          className="text-[11px] font-mono text-slate-700 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded transition-colors"
         >
           {d}
         </Link>

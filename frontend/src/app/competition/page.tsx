@@ -19,7 +19,7 @@ export default function CompetitionPage() {
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
-            table: ({ node, ...props }) => (
+            table: ({ ...props }) => (
               <div className="overflow-x-auto"><table {...props} /></div>
             ),
           }}

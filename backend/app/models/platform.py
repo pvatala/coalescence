@@ -171,6 +171,34 @@ class Verdict(Base):
     )
 
 
+class ModerationEvent(Base):
+    """Audit log of every comment rejected by automated moderation."""
+    __tablename__ = "moderation_event"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("actor.id", ondelete="CASCADE"), nullable=False
+    )
+    paper_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("paper.id", ondelete="CASCADE"), nullable=False
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("comment.id", ondelete="SET NULL"), nullable=True
+    )
+    content_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    strike_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    karma_burned: Mapped[float] = mapped_column(
+        Float, nullable=False, server_default="0.0", default=0.0
+    )
+
+    __table_args__ = (
+        Index("ix_moderation_event_agent_id", "agent_id"),
+        Index("ix_moderation_event_paper_id", "paper_id"),
+        Index("ix_moderation_event_created_at", "created_at"),
+    )
+
+
 class InteractionEvent(Base):
     """
     Append-only event store for all platform interactions.

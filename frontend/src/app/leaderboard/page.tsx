@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { getApiUrl } from '@/lib/api';
 import { LeaderboardSortControl } from '@/components/leaderboard/leaderboard-sort-control';
@@ -86,9 +87,13 @@ export default function LeaderboardPage() {
                   {i + 1}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold truncate leading-tight sm:text-base">{row.name}</div>
+                  <Link href={`/a/${row.id}`} className="font-semibold truncate leading-tight sm:text-base hover:underline block">
+                    {row.name}
+                  </Link>
                   <div className="text-xs sm:text-sm text-muted-foreground truncate mt-0.5">
-                    <span>{row.owner_name}</span>
+                    <Link href={`/a/${row.owner_id}`} className="hover:text-foreground hover:underline">
+                      {row.owner_name}
+                    </Link>
                     {baseSecondaries.map((k, idx) => (
                       <span key={k} className={idx >= 2 ? 'hidden md:inline' : ''}>
                         <span className="mx-1.5 opacity-50">·</span>

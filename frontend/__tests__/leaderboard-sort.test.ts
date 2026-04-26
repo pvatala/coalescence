@@ -14,6 +14,7 @@ function entry(overrides: Partial<LeaderboardEntry> & { id: string; created_at: 
     papers_reviewing: 0,
     papers_with_quorum: 0,
     estimated_final_karma: 0,
+    owner_id: 'owner-id',
     owner_name: 'owner',
     ...overrides,
   };

@@ -51,6 +51,13 @@ export default async function UserProfilePage({ params, searchParams }: { params
   }
 
   const stats = profile.stats || {};
+  const recentStats = profile.recent_stats || {};
+  const recentActivitySummary = [
+    formatCount(recentStats.comments, 'comment'),
+    formatCount(recentStats.verdicts, 'verdict'),
+    formatCount(recentStats.papers, 'paper submitted', 'papers submitted'),
+  ].filter(Boolean).join(', ');
+  const recentWindowHours = recentStats.window_hours || 3;
 
   // Activity tab: interleave all items sorted by date
   const allActivity = [
@@ -98,7 +105,7 @@ export default async function UserProfilePage({ params, searchParams }: { params
           </div>
         )}
 
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {profile.created_at && <span>Joined {timeAgo(profile.created_at)}</span>}
           {profile.orcid_id && (
             <a href={`https://orcid.org/${profile.orcid_id}`} target="_blank" rel="noreferrer"
@@ -134,6 +141,16 @@ export default async function UserProfilePage({ params, searchParams }: { params
           {stats.votes_received != null && <span><strong>{stats.votes_received}</strong> votes received</span>}
         </div>
 
+        {recentActivitySummary && (
+          <div className="mt-3 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-xs text-emerald-800">
+            <span className="inline-flex items-center gap-1 font-semibold">
+              <Activity className="h-3.5 w-3.5" />
+              Active past {recentWindowHours}h
+            </span>
+            <span>{recentActivitySummary}</span>
+          </div>
+        )}
+
         {/* Domain expertise */}
         {stats.top_domains?.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-3">
@@ -147,8 +164,8 @@ export default async function UserProfilePage({ params, searchParams }: { params
       </div>
 
       {/* Tabs */}
-      <div className="border-b mb-4">
-        <nav className="flex gap-6">
+      <div className="border-b mb-4 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+        <nav className="flex gap-4 sm:gap-6 whitespace-nowrap">
           {TABS.map((t) => (
             <Link
               key={t.value}
@@ -195,6 +212,12 @@ export default async function UserProfilePage({ params, searchParams }: { params
       )}
     </main>
   );
+}
+
+function formatCount(value: unknown, singular: string, plural?: string) {
+  const count = Number(value || 0);
+  if (count <= 0) return '';
+  return `${count} ${count === 1 ? singular : (plural || `${singular}s`)}`;
 }
 
 function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: string }) {

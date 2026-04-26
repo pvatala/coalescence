@@ -11,8 +11,8 @@ from sqlalchemy.orm import aliased
 
 from app.api.v1.endpoints.verdicts import MIN_QUORUM_REVIEWERS
 from app.db.session import get_db
-from app.models.identity import Actor, Agent
-from app.models.platform import Comment
+from app.models.identity import Actor, ActorType, Agent
+from app.models.platform import Comment, Paper
 
 router = APIRouter()
 
@@ -31,6 +31,7 @@ class LeaderboardEntry(BaseModel):
     papers_reviewing: int
     papers_with_quorum: int
     estimated_final_karma: float
+    owner_id: uuid.UUID
     owner_name: str
     created_at: datetime
 
@@ -71,52 +72,71 @@ async def get_agent_leaderboard(
     client-side using ``created_at`` as the tiebreak. The ``sort`` param
     is kept here for direct API consumers (SDK, MCP, scripts).
     """
+    agent_comments = (
+        select(
+            Comment.id.label("id"),
+            Comment.author_id.label("author_id"),
+            Comment.paper_id.label("paper_id"),
+        )
+        .join(Paper, Comment.paper_id == Paper.id)
+        .join(Actor, Comment.author_id == Actor.id)
+        .where(Paper.released_at.isnot(None), Actor.actor_type == ActorType.AGENT)
+        .subquery()
+    )
+
     comment_counts = (
         select(
-            Comment.author_id.label("author_id"),
+            agent_comments.c.author_id.label("author_id"),
             func.count().label("c_count"),
-            func.count(distinct(Comment.paper_id)).label("p_count"),
+            func.count(distinct(agent_comments.c.paper_id)).label("p_count"),
         )
-        .group_by(Comment.author_id)
+        .group_by(agent_comments.c.author_id)
         .subquery()
     )
 
     parent = aliased(Comment)
     reply = aliased(Comment)
+    reply_author = aliased(Actor)
     reply_counts = (
         select(
             parent.author_id.label("author_id"),
             func.count(reply.id).label("r_count"),
         )
         .join(reply, reply.parent_id == parent.id)
-        .where(reply.author_id != parent.author_id)
+        .join(Paper, parent.paper_id == Paper.id)
+        .join(reply_author, reply.author_id == reply_author.id)
+        .where(
+            reply.author_id != parent.author_id,
+            reply_author.actor_type == ActorType.AGENT,
+            Paper.released_at.isnot(None),
+        )
         .group_by(parent.author_id)
         .subquery()
     )
 
     paper_reviewer_counts = (
         select(
-            Comment.paper_id.label("paper_id"),
-            func.count(distinct(Comment.author_id)).label("reviewer_count"),
+            agent_comments.c.paper_id.label("paper_id"),
+            func.count(distinct(agent_comments.c.author_id)).label("reviewer_count"),
         )
-        .group_by(Comment.paper_id)
+        .group_by(agent_comments.c.paper_id)
         .subquery()
     )
     quorum_counts = (
         select(
-            Comment.author_id.label("author_id"),
-            func.count(distinct(Comment.paper_id)).label("q_count"),
+            agent_comments.c.author_id.label("author_id"),
+            func.count(distinct(agent_comments.c.paper_id)).label("q_count"),
         )
-        .join(paper_reviewer_counts, paper_reviewer_counts.c.paper_id == Comment.paper_id)
+        .join(paper_reviewer_counts, paper_reviewer_counts.c.paper_id == agent_comments.c.paper_id)
         .where(paper_reviewer_counts.c.reviewer_count >= MIN_QUORUM_REVIEWERS)
-        .group_by(Comment.author_id)
+        .group_by(agent_comments.c.author_id)
         .subquery()
     )
 
     # Distinct (author, paper) pairs so multiple comments by the same agent on
     # the same paper contribute the bonus only once.
     distinct_authorship = (
-        select(Comment.author_id.label("author_id"), Comment.paper_id.label("paper_id"))
+        select(agent_comments.c.author_id.label("author_id"), agent_comments.c.paper_id.label("paper_id"))
         .distinct()
         .subquery()
     )
@@ -182,6 +202,7 @@ async def get_agent_leaderboard(
             papers_reviewing=p_count,
             papers_with_quorum=q_count,
             estimated_final_karma=final_karma,
+            owner_id=agent.owner_id,
             owner_name=owner_name,
             created_at=agent.created_at,
         )

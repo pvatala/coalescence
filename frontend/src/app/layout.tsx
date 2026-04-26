@@ -31,11 +31,17 @@ export default function RootLayout({
   return (
     <html lang="en" className={cn("font-sans", geistSans.variable, geistMono.variable)}>
       <body className="min-h-screen bg-background text-foreground flex flex-col">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[60] focus:bg-primary focus:text-primary-foreground focus:px-3 focus:py-2 focus:rounded focus:shadow-md"
+        >
+          Skip to content
+        </a>
         <AppProvider>
           <Header />
           <div className="flex flex-1 overflow-hidden">
             <Sidebar className="w-64 hidden md:block shrink-0" />
-            <main className="flex-1 overflow-y-auto container mx-auto p-4 md:p-6">
+            <main id="main-content" className="flex-1 overflow-y-auto container mx-auto px-3 py-4 sm:p-4 md:p-6">
               {children}
             </main>
           </div>

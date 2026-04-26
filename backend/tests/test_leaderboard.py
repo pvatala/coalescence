@@ -64,14 +64,19 @@ async def _make_agent(
     return aid
 
 
-async def _make_paper(submitter_id: str) -> str:
+async def _make_paper(submitter_id: str, *, released: bool = True) -> str:
     pid = str(uuid.uuid4())
     await _exec(
         "INSERT INTO paper (id, title, abstract, domains, submitter_id, status, "
         "released_at, created_at, updated_at) "
         "VALUES (:id, :t, 'a', ARRAY['d/LBTest'], :sub, 'in_review'::paperstatus, "
-        "now(), now(), now())",
-        {"id": pid, "t": f"lb-paper-{uuid.uuid4().hex[:6]}", "sub": submitter_id},
+        ":released_at, now(), now())",
+        {
+            "id": pid,
+            "t": f"lb-paper-{uuid.uuid4().hex[:6]}",
+            "sub": submitter_id,
+            "released_at": datetime.utcnow() if released else None,
+        },
     )
     return pid
 
@@ -154,7 +159,7 @@ async def test_leaderboard_response_shape(client: AsyncClient):
     assert set(row.keys()) == {
         "id", "name", "karma",
         "comment_count", "reply_count", "papers_reviewing", "papers_with_quorum",
-        "estimated_final_karma", "owner_name", "created_at",
+        "estimated_final_karma", "owner_id", "owner_name", "created_at",
     }
     assert row["name"] == name
     assert row["karma"] == 9_000_900.0
@@ -193,6 +198,31 @@ async def test_leaderboard_counts_are_correct(client: AsyncClient):
     assert other_row["comment_count"] == 1
     assert other_row["reply_count"] == 0
     assert other_row["papers_reviewing"] == 1
+
+
+async def test_leaderboard_ignores_unreleased_paper_activity(client: AsyncClient):
+    human, _ = await _make_human()
+    aid = await _make_agent(human, name=f"lb_public_{uuid.uuid4().hex[:6]}", karma=9_004_000.0)
+    other = await _make_agent(human, name=f"lb_public_other_{uuid.uuid4().hex[:6]}", karma=1.0)
+    released_paper = await _make_paper(human)
+    hidden_paper = await _make_paper(human, released=False)
+
+    await _make_comment(released_paper, aid)
+    hidden_root = await _make_comment(hidden_paper, aid)
+    await _make_comment(hidden_paper, aid)
+    await _make_comment(hidden_paper, other, parent_id=hidden_root)
+    for _ in range(2):
+        hidden_filler = await _make_agent(human, name=f"lb_public_hidden_{uuid.uuid4().hex[:6]}", karma=1.0)
+        await _make_comment(hidden_paper, hidden_filler)
+
+    resp = await client.get("/api/v1/leaderboard/agents?limit=100")
+    assert resp.status_code == 200
+    row = next(r for r in resp.json() if r["id"] == aid)
+    assert row["comment_count"] == 1
+    assert row["reply_count"] == 0
+    assert row["papers_reviewing"] == 1
+    assert row["papers_with_quorum"] == 0
+    assert row["estimated_final_karma"] == 9_004_000.0
 
 
 async def test_leaderboard_sort_by_comments(client: AsyncClient):
@@ -305,6 +335,25 @@ async def test_leaderboard_papers_with_quorum_does_not_count_repeat_comments(cli
     assert resp.status_code == 200
     row = next(r for r in resp.json() if r["id"] == aid)
     assert row["papers_with_quorum"] == 0
+
+
+async def test_leaderboard_quorum_counts_only_agent_reviewers(client: AsyncClient):
+    human, _ = await _make_human()
+    outside_human, _ = await _make_human()
+    aid = await _make_agent(human, name=f"lb_qagent_{uuid.uuid4().hex[:6]}", karma=9_004_100.0)
+    paper = await _make_paper(human)
+
+    await _make_comment(paper, aid)
+    for _ in range(2):
+        other = await _make_agent(human, name=f"lb_qagent_o_{uuid.uuid4().hex[:6]}", karma=1.0)
+        await _make_comment(paper, other)
+    await _make_comment(paper, outside_human)
+
+    resp = await client.get("/api/v1/leaderboard/agents?limit=100")
+    assert resp.status_code == 200
+    row = next(r for r in resp.json() if r["id"] == aid)
+    assert row["papers_with_quorum"] == 0
+    assert row["estimated_final_karma"] == 9_004_100.0
 
 
 async def test_leaderboard_estimated_final_karma_value(client: AsyncClient):

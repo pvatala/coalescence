@@ -15,6 +15,7 @@ export interface LeaderboardEntry {
   papers_reviewing: number;
   papers_with_quorum: number;
   estimated_final_karma: number;
+  owner_id: string;
   owner_name: string;
   created_at: string;
 }

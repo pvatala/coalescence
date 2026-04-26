@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from app.db.session import get_db
 from app.core.deps import get_current_actor, get_current_actor_optional
@@ -15,15 +15,19 @@ from app.schemas.platform import UserProfileResponse, CommentResponse, PaperResp
 
 router = APIRouter()
 
+PROFILE_ACTIVITY_WINDOW_HOURS = 3
 
-async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID) -> dict:
+
+async def _get_actor_stats(db: AsyncSession, actor_id: uuid.UUID, *, public_only: bool = True) -> dict:
     """Compute activity stats for an actor."""
-    comments = (await db.execute(
-        select(func.count()).select_from(Comment).where(Comment.author_id == actor_id)
-    )).scalar() or 0
-    verdicts = (await db.execute(
-        select(func.count()).select_from(Verdict).where(Verdict.author_id == actor_id)
-    )).scalar() or 0
+    comments_query = select(func.count()).select_from(Comment).where(Comment.author_id == actor_id)
+    verdicts_query = select(func.count()).select_from(Verdict).where(Verdict.author_id == actor_id)
+    if public_only:
+        comments_query = comments_query.join(Paper, Comment.paper_id == Paper.id).where(Paper.released_at.isnot(None))
+        verdicts_query = verdicts_query.join(Paper, Verdict.paper_id == Paper.id).where(Paper.released_at.isnot(None))
+
+    comments = (await db.execute(comments_query)).scalar() or 0
+    verdicts = (await db.execute(verdicts_query)).scalar() or 0
     return {
         "comments": comments,
         "verdicts": verdicts,
@@ -52,6 +56,7 @@ async def get_my_subscriptions(
 
 # --- Public profile schema ---
 
+
 class PublicProfileResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -69,6 +74,7 @@ class PublicProfileResponse(BaseModel):
     karma: Optional[float] = None  # For agents
     strike_count: Optional[int] = None  # For agents
     stats: dict
+    recent_stats: dict
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -94,7 +100,7 @@ async def get_current_user_profile(
         agent_rows = result.scalars().all()
         agents = []
         for a in agent_rows:
-            stats = await _get_actor_stats(db, a.id)
+            stats = await _get_actor_stats(db, a.id, public_only=False)
             agents.append({
                 "id": str(a.id),
                 "name": a.name,
@@ -201,11 +207,6 @@ async def get_public_profile(
     )
     paper_count = paper_count_result.scalar() or 0
 
-    comment_count_result = await db.execute(
-        select(func.count()).select_from(Comment).where(Comment.author_id == user_id)
-    )
-    comment_count = comment_count_result.scalar() or 0
-
     orcid_id = None
     google_scholar_id = None
     openreview_ids: list[str] = []
@@ -248,19 +249,70 @@ async def get_public_profile(
                 owner_name = agent.owner.name
 
     actor_stats = await _get_actor_stats(db, user_id)
+    activity_actor_ids = [user_id]
     if actor.actor_type == ActorType.HUMAN:
         owned_agent_ids = [aid for (aid,) in (await db.execute(
             select(Agent.id).where(Agent.owner_id == user_id)
         )).all()]
         if owned_agent_ids:
+            activity_actor_ids.extend(owned_agent_ids)
             agent_comments = (await db.execute(
-                select(func.count()).select_from(Comment).where(Comment.author_id.in_(owned_agent_ids))
+                select(func.count())
+                .select_from(Comment)
+                .join(Paper, Comment.paper_id == Paper.id)
+                .where(Comment.author_id.in_(owned_agent_ids), Paper.released_at.isnot(None))
             )).scalar() or 0
             agent_verdicts = (await db.execute(
-                select(func.count()).select_from(Verdict).where(Verdict.author_id.in_(owned_agent_ids))
+                select(func.count())
+                .select_from(Verdict)
+                .join(Paper, Verdict.paper_id == Paper.id)
+                .where(Verdict.author_id.in_(owned_agent_ids), Paper.released_at.isnot(None))
             )).scalar() or 0
             actor_stats["comments"] += agent_comments
             actor_stats["verdicts"] += agent_verdicts
+
+    recent_cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=PROFILE_ACTIVITY_WINDOW_HOURS)
+    recent_comments = (await db.execute(
+        select(func.count())
+        .select_from(Comment)
+        .join(Paper, Comment.paper_id == Paper.id)
+        .where(
+            Comment.author_id.in_(activity_actor_ids),
+            Comment.created_at >= recent_cutoff,
+            Paper.released_at.isnot(None),
+        )
+    )).scalar() or 0
+    recent_verdicts = (await db.execute(
+        select(func.count())
+        .select_from(Verdict)
+        .join(Paper, Verdict.paper_id == Paper.id)
+        .where(
+            Verdict.author_id.in_(activity_actor_ids),
+            Verdict.created_at >= recent_cutoff,
+            Paper.released_at.isnot(None),
+        )
+    )).scalar() or 0
+    recent_papers = (await db.execute(
+        select(func.count())
+        .select_from(Paper)
+        .where(
+            Paper.submitter_id == user_id,
+            Paper.released_at.isnot(None),
+            Paper.created_at >= recent_cutoff,
+        )
+    )).scalar() or 0
+
+    stats = {
+        "papers": paper_count,
+        "comments": actor_stats["comments"],
+        "verdicts": actor_stats["verdicts"],
+    }
+    recent_stats = {
+        "comments": recent_comments,
+        "verdicts": recent_verdicts,
+        "papers": recent_papers,
+        "window_hours": PROFILE_ACTIVITY_WINDOW_HOURS,
+    }
 
     return PublicProfileResponse(
         id=actor.id,
@@ -278,11 +330,8 @@ async def get_public_profile(
         agents=agents_list,
         karma=agent_karma,
         strike_count=agent_strike_count,
-        stats={
-            "papers": paper_count,
-            "comments": actor_stats["comments"],
-            "verdicts": actor_stats["verdicts"],
-        },
+        stats=stats,
+        recent_stats=recent_stats,
     )
 
 
@@ -346,7 +395,7 @@ async def get_user_comments(
         select(Comment, Paper.title, Paper.domains, Actor.name, Actor.actor_type)
         .join(Paper, Comment.paper_id == Paper.id)
         .join(Actor, Comment.author_id == Actor.id)
-        .where(Comment.author_id.in_(actor_ids))
+        .where(Comment.author_id.in_(actor_ids), Paper.released_at.isnot(None))
         .order_by(Comment.created_at.desc())
         .offset(skip).limit(limit)
     )

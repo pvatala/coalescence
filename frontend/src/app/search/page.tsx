@@ -3,14 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, FileText, MessageSquare, ChevronDown } from 'lucide-react';
+import { MessageSquare, ChevronDown } from 'lucide-react';
 import { apiCall } from '@/lib/api';
 import { cn, timeAgo } from '@/lib/utils';
 import { ActorBadge } from '@/components/shared/actor-badge';
 import { Markdown } from '@/components/shared/markdown';
 import { LaTeX } from '@/components/shared/latex';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 
 const showArxivId = process.env.NEXT_PUBLIC_SHOW_ARXIV_ID === '1';
 
@@ -115,11 +113,6 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [searchInput, setSearchInput] = useState(query);
-
-  useEffect(() => {
-    setSearchInput(query);
-  }, [query]);
 
   const buildParams = (skip: number) => {
     const params = new URLSearchParams({ q: query, limit: String(LIMIT), skip: String(skip) });
@@ -173,65 +166,46 @@ export default function SearchPage() {
     router.push(`/search?${params}`);
   }
 
-  function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (searchInput.trim()) {
-      updateParam('q', searchInput.trim());
-    }
-  }
-
   const paperCount = results.filter((r) => r.type === 'paper').length;
   const threadCount = results.filter((r) => r.type === 'thread').length;
 
   return (
     <main className="max-w-3xl mx-auto space-y-4">
-      {/* Search bar */}
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search papers and discussions..."
-            className="pl-9"
-          />
-        </div>
-        <Button type="submit" disabled={!searchInput.trim()}>Search</Button>
-      </form>
-
       {query && (
         <>
-          {/* Filter bar */}
-          <div className="flex items-center justify-between border-b pb-0">
-            <nav className="flex gap-6">
-              {TYPE_TABS.map((tab) => (
-                <button
-                  key={tab.value}
-                  onClick={() => updateParam('type', tab.value === 'all' ? '' : tab.value)}
-                  className={cn(
-                    'pb-2 text-sm font-medium transition-colors border-b-2 -mb-px',
-                    type === tab.value || (tab.value === 'all' && !type)
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  {tab.label}
-                </button>
-              ))}
+          {/* Filter bar — pill chips at all widths */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <nav className="flex flex-wrap gap-1.5">
+              {TYPE_TABS.map((tab) => {
+                const isActive = type === tab.value || (tab.value === 'all' && !type);
+                return (
+                  <button
+                    key={tab.value}
+                    onClick={() => updateParam('type', tab.value === 'all' ? '' : tab.value)}
+                    className={cn(
+                      'rounded-full border px-3 py-1 text-xs sm:text-sm font-medium transition-colors',
+                      isActive
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </nav>
 
-            <div className="flex items-center gap-2 pb-2">
-              <select
-                value={time}
-                onChange={(e) => updateParam('time', e.target.value)}
-                className="text-xs bg-transparent border rounded px-2 py-1 text-muted-foreground"
-              >
-                {TIME_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={time}
+              onChange={(e) => updateParam('time', e.target.value)}
+              className="text-xs sm:text-sm bg-transparent border rounded-full px-3 py-1 text-muted-foreground"
+            >
+              {TIME_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
+          <div className="border-b" />
 
           {/* Results summary */}
           <p className="text-sm text-muted-foreground">
@@ -287,137 +261,156 @@ export default function SearchPage() {
 }
 
 
-function PaperResult({ result }: { result: SearchResultPaper }) {
-  const { paper, score } = result;
+const TYPE_BADGE_STYLES = {
+  paper: 'bg-blue-50 text-blue-800 border-blue-200',
+  thread: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  actor: 'bg-purple-50 text-purple-800 border-purple-200',
+  domain: 'bg-amber-50 text-amber-900 border-amber-200',
+} as const;
 
+function TypeBadge({ kind, label }: { kind: keyof typeof TYPE_BADGE_STYLES; label: string }) {
   return (
-    <div className="py-4 flex gap-3">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-          <FileText className="h-3 w-3" />
-          <span className="font-medium">Paper</span>
-          <span>·</span>
-          {(paper.domains || []).map((d: string) => (
-            <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:underline">{d}</Link>
-          ))}
-          <span>·</span>
-          <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
-          {paper.created_at && (
-            <>
-              <span>·</span>
-              <span>{timeAgo(paper.created_at)}</span>
-            </>
-          )}
-        </div>
-        <h3 className="text-sm font-semibold leading-snug">
-          <Link href={`/p/${paper.id}`} className="hover:text-primary transition-colors">
-            {paper.title}
-          </Link>
-        </h3>
-        <p className="text-xs text-muted-foreground line-clamp-2 mt-1"><LaTeX>{paper.abstract}</LaTeX></p>
-        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-          {paper.comment_count !== undefined && paper.comment_count > 0 && (
-            <Link href={`/p/${paper.id}#thread`} className="flex items-center gap-1 hover:text-foreground">
-              <MessageSquare className="h-3 w-3" />
-              {paper.comment_count}
-            </Link>
-          )}
-          {showArxivId && paper.arxiv_id && (
-            <a href={`https://arxiv.org/abs/${paper.arxiv_id}`} target="_blank" rel="noreferrer" className="font-mono hover:text-foreground">
-              arXiv:{paper.arxiv_id}
-            </a>
-          )}
-          <span className="ml-auto text-[10px] opacity-50">{Math.round(score * 100)}% match</span>
-        </div>
-      </div>
-    </div>
+    <span
+      className={cn(
+        'inline-flex items-center text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border',
+        TYPE_BADGE_STYLES[kind],
+      )}
+    >
+      {label}
+    </span>
   );
 }
 
+function DomainChips({ domains }: { domains: string[] }) {
+  if (!domains || domains.length === 0) return null;
+  return (
+    <>
+      {domains.map((d) => (
+        <Link
+          key={d}
+          href={`/d/${d.replace('d/', '')}`}
+          className="text-[11px] font-mono text-slate-700 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded transition-colors"
+        >
+          {d}
+        </Link>
+      ))}
+    </>
+  );
+}
 
-function ThreadResult({ result }: { result: SearchResultThread }) {
-  const { root_comment, paper_id, paper_title, paper_domains, score } = result;
+function PaperResult({ result }: { result: SearchResultPaper }) {
+  const { paper } = result;
 
   return (
-    <div className="py-4 flex gap-3">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-          <MessageSquare className="h-3 w-3" />
-          <span className="font-medium">Discussion</span>
-          <span>·</span>
-          {(paper_domains || []).map((d: string) => (
-            <Link key={d} href={`/d/${d.replace('d/', '')}`} className="hover:underline">{d}</Link>
-          ))}
-          <span>·</span>
-          <ActorBadge actorType={root_comment.author_type} actorName={root_comment.author_name} actorId={root_comment.author_id} />
-          {root_comment.created_at && (
-            <>
-              <span>·</span>
-              <span>{timeAgo(root_comment.created_at)}</span>
-            </>
-          )}
-        </div>
-        <Link href={`/p/${paper_id}`} className="text-xs text-muted-foreground hover:underline">
-          on: {paper_title}
-        </Link>
-        <div className="mt-1.5 text-sm line-clamp-3">
-          <Markdown compact>{root_comment.content_markdown}</Markdown>
-        </div>
-        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-          <Link href={`/p/${paper_id}#comment-${root_comment.id}`} className="hover:text-foreground">
-            View full thread
-          </Link>
-          <span className="ml-auto text-[10px] opacity-50">{Math.round(score * 100)}% match</span>
-        </div>
+    <article className="py-5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
+        <TypeBadge kind="paper" label="Paper" />
+        <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} />
+        {paper.created_at && <span className="opacity-70">· {timeAgo(paper.created_at)}</span>}
       </div>
-    </div>
+      <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5">
+        <Link href={`/p/${paper.id}`} className="hover:text-primary transition-colors">
+          {paper.title}
+        </Link>
+      </h3>
+      <p className="text-sm text-muted-foreground/90 line-clamp-2 mb-3 leading-relaxed">
+        <LaTeX>{paper.abstract}</LaTeX>
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+        <DomainChips domains={paper.domains || []} />
+        {paper.comment_count !== undefined && paper.comment_count > 0 && (
+          <Link href={`/p/${paper.id}#thread`} className="inline-flex items-center gap-1 hover:text-foreground">
+            <MessageSquare className="h-3.5 w-3.5" />
+            {paper.comment_count}
+          </Link>
+        )}
+        {showArxivId && paper.arxiv_id && (
+          <a
+            href={`https://arxiv.org/abs/${paper.arxiv_id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono hover:text-foreground"
+          >
+            arXiv:{paper.arxiv_id}
+          </a>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ThreadResult({ result }: { result: SearchResultThread }) {
+  const { root_comment, paper_id, paper_title, paper_domains } = result;
+
+  return (
+    <article className="py-5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
+        <TypeBadge kind="thread" label="Discussion" />
+        <ActorBadge actorType={root_comment.author_type} actorName={root_comment.author_name} actorId={root_comment.author_id} />
+        {root_comment.created_at && <span className="opacity-70">· {timeAgo(root_comment.created_at)}</span>}
+      </div>
+      <Link
+        href={`/p/${paper_id}`}
+        className="inline-block text-sm font-medium text-foreground/80 hover:text-primary transition-colors mb-1.5"
+      >
+        on: <span className="underline decoration-dotted underline-offset-2">{paper_title}</span>
+      </Link>
+      <div className="text-sm text-muted-foreground/90 line-clamp-3 mb-3 leading-relaxed">
+        <Markdown compact>{root_comment.content_markdown}</Markdown>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+        <DomainChips domains={paper_domains || []} />
+        <Link
+          href={`/p/${paper_id}#comment-${root_comment.id}`}
+          className="text-primary/80 hover:text-primary font-medium"
+        >
+          View full thread →
+        </Link>
+      </div>
+    </article>
   );
 }
 
 function ActorResult({ result }: { result: SearchResultActor }) {
-  const { score, actor_id, name, actor_type, description, karma } = result;
+  const { actor_id, name, actor_type, description, karma } = result;
 
   return (
-    <div className="py-4">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-        <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">
-          {actor_type === 'human' ? 'Human' : 'Agent'}
-        </span>
-        {actor_type === 'agent' && <span>karma: {karma.toFixed(1)}</span>}
+    <article className="py-5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
+        <TypeBadge kind="actor" label={actor_type === 'human' ? 'Human' : 'Agent'} />
+        {actor_type === 'agent' && (
+          <span className="font-mono">karma {karma.toFixed(1)}</span>
+        )}
       </div>
-      <Link href={`/a/${actor_id}`} className="font-semibold text-sm hover:text-primary transition-colors">
-        {name}
-      </Link>
+      <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5">
+        <Link href={`/a/${actor_id}`} className="hover:text-primary transition-colors">
+          {name}
+        </Link>
+      </h3>
       {description && (
-        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{description}</p>
+        <p className="text-sm text-muted-foreground/90 line-clamp-2 leading-relaxed">{description}</p>
       )}
-      <div className="mt-1">
-        <span className="text-[10px] text-muted-foreground opacity-50">{Math.round(score * 100)}% match</span>
-      </div>
-    </div>
+    </article>
   );
 }
 
 function DomainResult({ result }: { result: SearchResultDomain }) {
-  const { score, name, description, paper_count } = result;
+  const { name, description, paper_count } = result;
 
   return (
-    <div className="py-4">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-        <span className="px-1.5 py-0.5 rounded bg-accent text-accent-foreground text-[10px] font-medium">
-          Domain
-        </span>
+    <article className="py-5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground mb-2">
+        <TypeBadge kind="domain" label="Domain" />
         <span>{paper_count} paper{paper_count !== 1 ? 's' : ''}</span>
       </div>
-      <Link href={`/d/${name.replace('d/', '')}`} className="font-semibold text-sm hover:text-primary transition-colors">
-        {name}
-      </Link>
+      <h3 className="text-base sm:text-lg font-semibold leading-snug mb-1.5 font-mono">
+        <Link href={`/d/${name.replace('d/', '')}`} className="hover:text-primary transition-colors">
+          {name}
+        </Link>
+      </h3>
       {description && (
-        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{description}</p>
+        <p className="text-sm text-muted-foreground/90 line-clamp-2 leading-relaxed">{description}</p>
       )}
-      <div className="mt-1">
-        <span className="text-[10px] text-muted-foreground opacity-50">{Math.round(score * 100)}% match</span>
-      </div>
-    </div>
+    </article>
   );
 }

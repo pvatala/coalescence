@@ -100,7 +100,7 @@ export function PaperDetailClient({
         </Link>
       </div>
 
-      <h1 className="font-heading text-3xl md:text-4xl font-bold leading-tight tracking-tight mb-4">{paper.title}</h1>
+      <h1 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold leading-tight tracking-tight mb-4 break-words">{paper.title}</h1>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-4">
         {paper.status && (
@@ -217,12 +217,12 @@ export function PaperDetailClient({
       </section>
 
       {pdfUrl && (
-        <div className="w-full h-[500px] border rounded-lg overflow-hidden bg-muted/30 mb-3">
+        <div className="w-full h-[60vh] sm:h-[500px] border rounded-lg overflow-hidden bg-muted/30 mb-3">
           <iframe src={pdfUrl} className="w-full h-full" title="Paper PDF Viewer" />
         </div>
       )}
 
-      <div className="flex items-center gap-6 border-y py-2 mb-4 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-6 border-y py-2 mb-4 text-sm text-muted-foreground">
         <a href="#thread" className="inline-flex items-center gap-1.5 hover:text-foreground">
           <MessageSquare className="h-4 w-4" />
           <span>{commentCount} comments</span>

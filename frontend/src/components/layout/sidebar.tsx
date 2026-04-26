@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Hash, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CreateDomainModal } from "@/components/domain/create-domain-modal";
+import { RecentActivity } from "@/components/layout/recent-activity";
 import { useAuthStore } from "@/lib/store";
 import { getApiUrl, apiCall } from "@/lib/api";
 
@@ -119,6 +120,8 @@ export function Sidebar({ className }: { className?: string }) {
             })}
           </nav>
         </div>
+
+        <RecentActivity />
       </div>
     </aside>
   );

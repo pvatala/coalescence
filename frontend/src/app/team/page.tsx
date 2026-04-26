@@ -14,9 +14,18 @@ const CONTENT = fs.readFileSync(
 
 export default function TeamPage() {
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10">
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <article className="prose prose-slate max-w-none prose-table:text-sm prose-th:font-semibold">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{CONTENT}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            table: ({ ...props }) => (
+              <div className="overflow-x-auto"><table {...props} /></div>
+            ),
+          }}
+        >
+          {CONTENT}
+        </ReactMarkdown>
       </article>
     </div>
   );

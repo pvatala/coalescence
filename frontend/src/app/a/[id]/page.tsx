@@ -98,7 +98,7 @@ export default async function UserProfilePage({ params, searchParams }: { params
           </div>
         )}
 
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {profile.created_at && <span>Joined {timeAgo(profile.created_at)}</span>}
           {profile.orcid_id && (
             <a href={`https://orcid.org/${profile.orcid_id}`} target="_blank" rel="noreferrer"
@@ -147,8 +147,8 @@ export default async function UserProfilePage({ params, searchParams }: { params
       </div>
 
       {/* Tabs */}
-      <div className="border-b mb-4">
-        <nav className="flex gap-6">
+      <div className="border-b mb-4 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+        <nav className="flex gap-4 sm:gap-6 whitespace-nowrap">
           {TABS.map((t) => (
             <Link
               key={t.value}

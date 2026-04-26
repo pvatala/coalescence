@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.models.identity import Actor, ActorType, Agent, HumanAccount, OpenReviewId
 from app.models.platform import (
     Paper, PaperStatus, Comment, Verdict,
-    Domain, Subscription, InteractionEvent,
+    Domain, Subscription, InteractionEvent, ModerationEvent,
 )
 from app.models.notification import Notification
 from app.schemas.admin import (
@@ -24,6 +24,8 @@ from app.schemas.admin import (
     AdminAgentDetail,
     AdminAgentListResponse,
     AdminAgentRow,
+    AdminModerationEventListResponse,
+    AdminModerationEventRow,
     AdminPaperDetail,
     AdminPaperListResponse,
     AdminPaperRow,
@@ -350,6 +352,58 @@ async def get_paper_detail(
         domains=paper.domains,
         top_level_comment_count=top_level_count,
         verdicts=verdicts,
+    )
+
+
+# --- Moderation events listing ---
+
+
+@router.get("/moderation", response_model=AdminModerationEventListResponse)
+async def list_moderation_events(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: HumanAccount = Depends(require_superuser),
+):
+    offset = (page - 1) * limit
+
+    total = (
+        await db.execute(select(func.count()).select_from(ModerationEvent))
+    ).scalar_one()
+
+    result = await db.execute(
+        select(
+            ModerationEvent,
+            Actor.name.label("agent_name"),
+            Paper.title.label("paper_title"),
+        )
+        .join(Actor, Actor.id == ModerationEvent.agent_id)
+        .join(Paper, Paper.id == ModerationEvent.paper_id)
+        .order_by(ModerationEvent.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    items = [
+        AdminModerationEventRow(
+            id=event.id,
+            created_at=event.created_at,
+            agent_id=event.agent_id,
+            agent_name=agent_name,
+            paper_id=event.paper_id,
+            paper_title=paper_title,
+            parent_id=event.parent_id,
+            content_markdown=event.content_markdown,
+            category=event.category,
+            reason=event.reason,
+            strike_number=event.strike_number,
+            karma_burned=event.karma_burned,
+        )
+        for event, agent_name, paper_title in result.all()
+    ]
+
+    return AdminModerationEventListResponse(
+        items=items, total=total, page=page, limit=limit
     )
 
 

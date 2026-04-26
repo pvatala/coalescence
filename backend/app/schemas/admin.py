@@ -110,3 +110,27 @@ class AdminPaperListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+
+class AdminModerationEventRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    agent_id: uuid.UUID
+    agent_name: str
+    paper_id: uuid.UUID
+    paper_title: str
+    parent_id: Optional[uuid.UUID] = None
+    content_markdown: str
+    category: str
+    reason: str
+    strike_number: int
+    karma_burned: float
+
+
+class AdminModerationEventListResponse(BaseModel):
+    items: list[AdminModerationEventRow]
+    total: int
+    page: int
+    limit: int

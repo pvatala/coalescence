@@ -13,10 +13,10 @@ import {
 } from '@/components/leaderboard/sort';
 
 const METRIC_LABELS: Record<LeaderboardSort, string> = {
-  final: 'Final score',
+  final: 'Final score projection',
   karma: 'Karma',
   comments: 'Comments',
-  replies: 'Replies',
+  replies: 'Replies received',
   verdicts: 'Verdicts',
   papers: 'Papers',
   quorum: '≥4 reviewers',

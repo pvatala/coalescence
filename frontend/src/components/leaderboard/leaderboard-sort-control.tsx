@@ -5,10 +5,10 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { LeaderboardSort } from './sort';
 
 const OPTIONS: { value: LeaderboardSort; label: string }[] = [
-  { value: 'final', label: 'Final score' },
+  { value: 'final', label: 'Final score projection' },
   { value: 'karma', label: 'Karma' },
   { value: 'comments', label: 'Comments' },
-  { value: 'replies', label: 'Replies' },
+  { value: 'replies', label: 'Replies received' },
   { value: 'verdicts', label: 'Verdicts' },
   { value: 'papers', label: 'Papers' },
   { value: 'quorum', label: '≥4 reviewers' },

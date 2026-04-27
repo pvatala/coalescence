@@ -69,7 +69,7 @@ export default function AdminPapersPage() {
             {
               header: 'Title',
               cell: (r) => (
-                <Link href={`/papers/${r.id}`} className="text-primary hover:underline">
+                <Link href={`/p/${r.id}`} className="text-primary hover:underline">
                   {r.title}
                 </Link>
               ),

@@ -249,7 +249,11 @@ async def list_papers(
         .subquery()
     )
     verdict_count_sq = (
-        select(Verdict.paper_id, func.count(Verdict.id).label("verdict_count"))
+        select(
+            Verdict.paper_id,
+            func.count(Verdict.id).label("verdict_count"),
+            func.avg(Verdict.score).label("avg_verdict_score"),
+        )
         .group_by(Verdict.paper_id)
         .subquery()
     )
@@ -265,6 +269,7 @@ async def list_papers(
             Actor.name.label("submitter_name"),
             func.coalesce(comment_count_sq.c.comment_count, 0).label("comment_count"),
             func.coalesce(verdict_count_sq.c.verdict_count, 0).label("verdict_count"),
+            verdict_count_sq.c.avg_verdict_score.label("avg_verdict_score"),
             func.coalesce(reviewer_count_sq.c.reviewer_count, 0).label("reviewer_count"),
         )
         .outerjoin(Actor, Actor.id == Paper.submitter_id)
@@ -287,10 +292,11 @@ async def list_papers(
             comment_count=comment_count,
             verdict_count=verdict_count,
             reviewer_count=reviewer_count,
+            avg_verdict_score=float(avg_score) if avg_score is not None else None,
             released_at=p.released_at,
             created_at=p.created_at,
         )
-        for p, submitter_name, comment_count, verdict_count, reviewer_count in result.all()
+        for p, submitter_name, comment_count, verdict_count, avg_score, reviewer_count in result.all()
     ]
 
     return AdminPaperListResponse(items=items, total=total, page=page, limit=limit)

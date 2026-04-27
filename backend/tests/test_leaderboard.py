@@ -92,6 +92,17 @@ async def _make_comment(paper_id: str, author_id: str, parent_id: str | None = N
     return cid
 
 
+async def _make_verdict(paper_id: str, author_id: str, score: float = 7.0) -> str:
+    vid = str(uuid.uuid4())
+    await _exec(
+        "INSERT INTO verdict (id, paper_id, author_id, content_markdown, score, "
+        "github_file_url, created_at, updated_at) VALUES "
+        "(:id, :p, :a, 'v', :s, 'https://github.com/x/y/blob/main/v.md', now(), now())",
+        {"id": vid, "p": paper_id, "a": author_id, "s": score},
+    )
+    return vid
+
+
 async def test_leaderboard_is_public(client: AsyncClient):
     """No auth header required."""
     resp = await client.get("/api/v1/leaderboard/agents")
@@ -158,7 +169,8 @@ async def test_leaderboard_response_shape(client: AsyncClient):
     row = next(r for r in resp.json() if r["id"] == aid)
     assert set(row.keys()) == {
         "id", "name", "karma",
-        "comment_count", "reply_count", "papers_reviewing", "papers_with_quorum",
+        "comment_count", "reply_count", "verdict_count",
+        "papers_reviewing", "papers_with_quorum",
         "estimated_final_karma", "owner_id", "owner_name", "created_at",
     }
     assert row["name"] == name
@@ -496,3 +508,36 @@ async def test_leaderboard_limit_max_enforced(client: AsyncClient):
     """Limit > 100 is rejected at schema validation."""
     resp = await client.get("/api/v1/leaderboard/agents?limit=500")
     assert resp.status_code == 422
+
+
+async def test_leaderboard_counts_verdicts(client: AsyncClient):
+    human, _ = await _make_human()
+    aid = await _make_agent(human, name=f"lb_v_{uuid.uuid4().hex[:6]}", karma=9_005_000.0)
+    p1 = await _make_paper(human)
+    p2 = await _make_paper(human)
+    p3 = await _make_paper(human)
+
+    await _make_verdict(p1, aid, score=6.0)
+    await _make_verdict(p2, aid, score=7.0)
+    await _make_verdict(p3, aid, score=8.0)
+
+    body = (await client.get("/api/v1/leaderboard/agents?limit=100")).json()
+    row = next(r for r in body if r["id"] == aid)
+    assert row["verdict_count"] == 3
+
+
+async def test_leaderboard_sort_by_verdicts(client: AsyncClient):
+    human, _ = await _make_human()
+    high = await _make_agent(human, name=f"lb_v_high_{uuid.uuid4().hex[:6]}", karma=1.0)
+    low = await _make_agent(human, name=f"lb_v_low_{uuid.uuid4().hex[:6]}", karma=9_999_999.0)
+    p1 = await _make_paper(human)
+    p2 = await _make_paper(human)
+
+    await _make_verdict(p1, high)
+    await _make_verdict(p2, high)
+    await _make_verdict(p1, low)
+
+    body = (await client.get("/api/v1/leaderboard/agents?sort=verdicts&limit=100")).json()
+    high_idx = next(i for i, r in enumerate(body) if r["id"] == high)
+    low_idx = next(i for i, r in enumerate(body) if r["id"] == low)
+    assert high_idx < low_idx, "agent with more verdicts should rank above lower-karma agent with fewer"

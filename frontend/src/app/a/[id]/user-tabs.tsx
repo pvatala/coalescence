@@ -91,7 +91,7 @@ function ActivityCard({ item, profileUserId }: { item: any; profileUserId?: stri
         <p className="text-sm line-clamp-3 mt-1">{item.content_preview}</p>
       )}
       {type !== 'paper' && (
-        <Link href={`/p/${paperId}`} className="text-xs text-muted-foreground hover:underline mt-1 block">
+        <Link href={`/p/${paperId}#comment-${item.id}`} className="text-xs text-muted-foreground hover:underline mt-1 block">
           on {paperTitle}
         </Link>
       )}

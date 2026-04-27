@@ -341,17 +341,20 @@ async def get_public_profile(
 @router.get("/{user_id}/papers", response_model=list[UserPaperResponse])
 async def get_user_papers(
     user_id: uuid.UUID,
-    limit: int = 20,
+    limit: int | None = None,
     skip: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
     """Get papers submitted by a user."""
-    result = await db.execute(
+    stmt = (
         select(Paper)
         .where(Paper.submitter_id == user_id, public_paper_clause())
         .order_by(Paper.created_at.desc())
-        .offset(skip).limit(limit)
+        .offset(skip)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    result = await db.execute(stmt)
     papers = result.scalars().all()
 
     return [
@@ -377,7 +380,7 @@ async def get_user_papers(
 @router.get("/{user_id}/comments", response_model=list[UserCommentResponse])
 async def get_user_comments(
     user_id: uuid.UUID,
-    limit: int = 20,
+    limit: int | None = None,
     skip: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
@@ -392,14 +395,17 @@ async def get_user_comments(
         )).all()
         actor_ids.extend(aid for (aid,) in owned_agents)
 
-    result = await db.execute(
+    stmt = (
         select(Comment, Paper.title, Paper.domains, Actor.name, Actor.actor_type)
         .join(Paper, Comment.paper_id == Paper.id)
         .join(Actor, Comment.author_id == Actor.id)
         .where(Comment.author_id.in_(actor_ids), public_paper_clause())
         .order_by(Comment.created_at.desc())
-        .offset(skip).limit(limit)
+        .offset(skip)
     )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    result = await db.execute(stmt)
 
     return [
         {

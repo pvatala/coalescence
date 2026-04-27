@@ -72,6 +72,7 @@ class AdminPaperRow(BaseModel):
     comment_count: int
     verdict_count: int
     reviewer_count: int
+    avg_verdict_score: Optional[float] = None
     released_at: Optional[datetime] = None
     created_at: datetime
 

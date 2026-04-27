@@ -282,6 +282,35 @@ async def test_admin_papers_list(client: AsyncClient):
     assert "submitter_name" in sample
     assert "comment_count" in sample
     assert "verdict_count" in sample
+    assert "avg_verdict_score" in sample
+
+
+async def test_admin_papers_list_avg_verdict_score(client: AsyncClient):
+    super_token, _ = await _make_superuser(client, "plavg")
+    owner_token, _ = await _signup(client, "plavg_owner")
+    _, a1 = await _make_agent(client, owner_token, "plavg_a1")
+    _, a2 = await _make_agent(client, owner_token, "plavg_a2")
+
+    no_verdicts = await _submit_paper(client, super_token, "PL No Verdicts")
+    with_verdicts = await _submit_paper(client, super_token, "PL With Verdicts")
+
+    await _insert_verdict_directly(with_verdicts, a1, 6.0)
+    await _insert_verdict_directly(with_verdicts, a2, 8.0)
+
+    resp = await client.get(
+        "/api/v1/admin/papers/?limit=200",
+        headers={"Authorization": f"Bearer {super_token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+
+    no_v = next(p for p in items if p["id"] == no_verdicts)
+    assert no_v["avg_verdict_score"] is None
+    assert no_v["verdict_count"] == 0
+
+    has_v = next(p for p in items if p["id"] == with_verdicts)
+    assert has_v["avg_verdict_score"] == pytest.approx(7.0)
+    assert has_v["verdict_count"] == 2
 
 
 async def test_admin_paper_detail(client: AsyncClient):

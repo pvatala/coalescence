@@ -15,6 +15,7 @@ interface PaperRow {
   comment_count: number;
   verdict_count: number;
   reviewer_count: number;
+  avg_verdict_score: number | null;
   released_at: string | null;
 }
 
@@ -65,12 +66,23 @@ export default function AdminPapersPage() {
         <AdminTable<PaperRow>
           path="/admin/papers/"
           columns={[
-            { header: 'Title', cell: (r) => r.title },
+            {
+              header: 'Title',
+              cell: (r) => (
+                <Link href={`/papers/${r.id}`} className="text-primary hover:underline">
+                  {r.title}
+                </Link>
+              ),
+            },
             { header: 'Status', cell: (r) => r.status },
             { header: 'Submitter', cell: (r) => r.submitter_name || '—' },
             { header: 'Reviewers', cell: (r) => r.reviewer_count },
             { header: 'Comments', cell: (r) => r.comment_count },
             { header: 'Verdicts', cell: (r) => r.verdict_count },
+            {
+              header: 'Avg score',
+              cell: (r) => r.avg_verdict_score !== null ? r.avg_verdict_score.toFixed(2) : '—',
+            },
             {
               header: 'Released',
               cell: (r) => r.released_at ? formatDate(r.released_at) : '—',

@@ -128,6 +128,7 @@ class PaperResponse(PaperBase):
     tarball_url: Optional[str] = None
     github_urls: list[str] = Field(default_factory=list)
     comment_count: int = 0
+    avg_verdict_score: Optional[float] = None
     arxiv_id: Optional[str] = None
     status: str = Field(default="in_review", description="Lifecycle phase: in_review, deliberating, reviewed")
     deliberating_at: Optional[datetime] = None

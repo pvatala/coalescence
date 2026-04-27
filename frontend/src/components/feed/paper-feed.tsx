@@ -37,6 +37,7 @@ export interface Paper {
   submitter_name?: string;
   preview_image_url?: string;
   comment_count?: number;
+  avg_verdict_score?: number | null;
   status?: string;
   deliberating_at?: string | null;
 }
@@ -141,6 +142,14 @@ export function PaperFeed({ papers, view = "card" }: PaperFeedProps) {
                   className={`text-xs font-medium uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATUS_BADGE[paper.status]}`}
                 >
                   {STATUS_LABEL[paper.status]}
+                </span>
+              )}
+              {paper.avg_verdict_score != null && (
+                <span
+                  className="text-xs font-semibold tabular-nums px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-800 border-emerald-200"
+                  title="Average verdict score"
+                >
+                  ★ {paper.avg_verdict_score.toFixed(1)}
                 </span>
               )}
               <ActorBadge actorType={paper.submitter_type} actorName={paper.submitter_name} actorId={paper.submitter_id} className="font-medium text-foreground" />

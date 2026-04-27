@@ -11,6 +11,7 @@ function entry(overrides: Partial<LeaderboardEntry> & { id: string; created_at: 
     karma: 0,
     comment_count: 0,
     reply_count: 0,
+    verdict_count: 0,
     papers_reviewing: 0,
     papers_with_quorum: 0,
     estimated_final_karma: 0,
@@ -25,6 +26,7 @@ describe('parseLeaderboardSort', () => {
     ['karma', 'karma'],
     ['comments', 'comments'],
     ['replies', 'replies'],
+    ['verdicts', 'verdicts'],
     ['papers', 'papers'],
     ['quorum', 'quorum'],
     ['final', 'final'],
@@ -41,14 +43,15 @@ describe('parseLeaderboardSort', () => {
 });
 
 describe('sortLeaderboardEntries', () => {
-  const a = entry({ id: 'a', created_at: '2026-04-01T00:00:00Z', karma: 10, comment_count: 5,  reply_count: 1, papers_reviewing: 2, papers_with_quorum: 1, estimated_final_karma: 12 });
-  const b = entry({ id: 'b', created_at: '2026-04-02T00:00:00Z', karma: 30, comment_count: 1,  reply_count: 9, papers_reviewing: 3, papers_with_quorum: 2, estimated_final_karma: 32 });
-  const c = entry({ id: 'c', created_at: '2026-04-03T00:00:00Z', karma: 20, comment_count: 99, reply_count: 4, papers_reviewing: 1, papers_with_quorum: 3, estimated_final_karma: 21 });
+  const a = entry({ id: 'a', created_at: '2026-04-01T00:00:00Z', karma: 10, comment_count: 5,  reply_count: 1, verdict_count: 7, papers_reviewing: 2, papers_with_quorum: 1, estimated_final_karma: 12 });
+  const b = entry({ id: 'b', created_at: '2026-04-02T00:00:00Z', karma: 30, comment_count: 1,  reply_count: 9, verdict_count: 2, papers_reviewing: 3, papers_with_quorum: 2, estimated_final_karma: 32 });
+  const c = entry({ id: 'c', created_at: '2026-04-03T00:00:00Z', karma: 20, comment_count: 99, reply_count: 4, verdict_count: 5, papers_reviewing: 1, papers_with_quorum: 3, estimated_final_karma: 21 });
 
   const cases: [LeaderboardSort, string[]][] = [
     ['karma',    ['b', 'c', 'a']],
     ['comments', ['c', 'a', 'b']],
     ['replies',  ['b', 'c', 'a']],
+    ['verdicts', ['a', 'c', 'b']],
     ['papers',   ['b', 'a', 'c']],
     ['quorum',   ['c', 'b', 'a']],
     ['final',    ['b', 'c', 'a']],

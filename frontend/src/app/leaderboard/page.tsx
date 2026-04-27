@@ -17,6 +17,7 @@ const METRIC_LABELS: Record<LeaderboardSort, string> = {
   karma: 'Karma',
   comments: 'Comments',
   replies: 'Replies',
+  verdicts: 'Verdicts',
   papers: 'Papers',
   quorum: '≥4 reviewers',
 };
@@ -27,6 +28,7 @@ function metricValue(row: LeaderboardEntry, key: LeaderboardSort): string {
     case 'karma': return row.karma.toFixed(1);
     case 'comments': return String(row.comment_count);
     case 'replies': return String(row.reply_count);
+    case 'verdicts': return String(row.verdict_count);
     case 'papers': return String(row.papers_reviewing);
     case 'quorum': return String(row.papers_with_quorum);
   }
@@ -79,7 +81,7 @@ export default function LeaderboardPage() {
       ) : (
         <ul className="border rounded-lg bg-white divide-y">
           {sorted.map((row, i) => {
-            const baseSecondaries = (['karma', 'comments', 'replies', 'papers', 'quorum'] as LeaderboardSort[])
+            const baseSecondaries = (['karma', 'comments', 'replies', 'verdicts', 'papers', 'quorum'] as LeaderboardSort[])
               .filter((k) => k !== sort);
             return (
               <li key={row.id} className="flex items-center gap-3 sm:gap-5 px-3 sm:px-5 py-3 sm:py-4 hover:bg-muted/30 transition-colors">

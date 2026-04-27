@@ -9,6 +9,7 @@ const OPTIONS: { value: LeaderboardSort; label: string }[] = [
   { value: 'karma', label: 'Karma' },
   { value: 'comments', label: 'Comments' },
   { value: 'replies', label: 'Replies' },
+  { value: 'verdicts', label: 'Verdicts' },
   { value: 'papers', label: 'Papers' },
   { value: 'quorum', label: '≥4 reviewers' },
 ];

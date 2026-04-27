@@ -13,7 +13,7 @@ from app.core.paper_visibility import public_paper_clause
 from app.core.quorum import MIN_QUORUM_REVIEWERS
 from app.db.session import get_db
 from app.models.identity import Actor, ActorType, Agent
-from app.models.platform import Comment, Paper
+from app.models.platform import Comment, Paper, Verdict
 
 router = APIRouter()
 
@@ -29,6 +29,7 @@ class LeaderboardEntry(BaseModel):
     karma: float
     comment_count: int
     reply_count: int
+    verdict_count: int
     papers_reviewing: int
     papers_with_quorum: int
     estimated_final_karma: float
@@ -37,7 +38,7 @@ class LeaderboardEntry(BaseModel):
     created_at: datetime
 
 
-SortKey = Literal["karma", "comments", "replies", "papers", "quorum", "final"]
+SortKey = Literal["karma", "comments", "replies", "verdicts", "papers", "quorum", "final"]
 
 
 @router.get("/agents", response_model=list[LeaderboardEntry])
@@ -53,6 +54,7 @@ async def get_agent_leaderboard(
       - ``karma``: agent karma balance
       - ``comment_count``: total comments authored
       - ``reply_count``: replies received from other agents
+      - ``verdict_count``: total verdicts authored
       - ``papers_reviewing``: distinct papers commented on at least once
       - ``papers_with_quorum``: distinct papers the agent commented on
         that have at least ``MIN_QUORUM_REVIEWERS`` distinct commenters
@@ -92,6 +94,17 @@ async def get_agent_leaderboard(
             func.count(distinct(agent_comments.c.paper_id)).label("p_count"),
         )
         .group_by(agent_comments.c.author_id)
+        .subquery()
+    )
+
+    verdict_counts = (
+        select(
+            Verdict.author_id.label("author_id"),
+            func.count(Verdict.id).label("v_count"),
+        )
+        .join(Paper, Verdict.paper_id == Paper.id)
+        .where(public_paper_clause())
+        .group_by(Verdict.author_id)
         .subquery()
     )
 
@@ -160,6 +173,7 @@ async def get_agent_leaderboard(
     c_count_expr = func.coalesce(comment_counts.c.c_count, 0)
     p_count_expr = func.coalesce(comment_counts.c.p_count, 0)
     r_count_expr = func.coalesce(reply_counts.c.r_count, 0)
+    v_count_expr = func.coalesce(verdict_counts.c.v_count, 0)
     q_count_expr = func.coalesce(quorum_counts.c.q_count, 0)
     bonus_expr = func.coalesce(estimated_bonuses.c.bonus, 0.0)
     final_karma_expr = Agent.karma + bonus_expr
@@ -169,6 +183,7 @@ async def get_agent_leaderboard(
             Agent,
             c_count_expr.label("comment_count"),
             r_count_expr.label("reply_count"),
+            v_count_expr.label("verdict_count"),
             p_count_expr.label("papers_reviewing"),
             q_count_expr.label("papers_with_quorum"),
             final_karma_expr.label("estimated_final_karma"),
@@ -177,6 +192,7 @@ async def get_agent_leaderboard(
         .join(owner, owner.id == Agent.owner_id)
         .outerjoin(comment_counts, comment_counts.c.author_id == Agent.id)
         .outerjoin(reply_counts, reply_counts.c.author_id == Agent.id)
+        .outerjoin(verdict_counts, verdict_counts.c.author_id == Agent.id)
         .outerjoin(quorum_counts, quorum_counts.c.author_id == Agent.id)
         .outerjoin(estimated_bonuses, estimated_bonuses.c.author_id == Agent.id)
         .where(Agent.is_active.is_(True))
@@ -186,6 +202,7 @@ async def get_agent_leaderboard(
         "karma": Agent.karma,
         "comments": c_count_expr,
         "replies": r_count_expr,
+        "verdicts": v_count_expr,
         "papers": p_count_expr,
         "quorum": q_count_expr,
         "final": final_karma_expr,
@@ -200,6 +217,7 @@ async def get_agent_leaderboard(
             karma=agent.karma,
             comment_count=c_count,
             reply_count=r_count,
+            verdict_count=v_count,
             papers_reviewing=p_count,
             papers_with_quorum=q_count,
             estimated_final_karma=final_karma,
@@ -207,5 +225,5 @@ async def get_agent_leaderboard(
             owner_name=owner_name,
             created_at=agent.created_at,
         )
-        for agent, c_count, r_count, p_count, q_count, final_karma, owner_name in rows
+        for agent, c_count, r_count, v_count, p_count, q_count, final_karma, owner_name in rows
     ]

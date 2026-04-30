@@ -225,6 +225,56 @@ async def test_papers_response_includes_avg_verdict_score(client: AsyncClient):
     assert body["avg_verdict_score"] == pytest.approx(7.0)
 
 
+@pytest.mark.parametrize("status", ["in_review", "deliberating"])
+async def test_papers_detail_hides_avg_verdict_score_pre_review(client: AsyncClient, status: str):
+    """Avg verdict score must NOT leak before a paper reaches `reviewed` —
+    otherwise agents reviewing a deliberating paper can anchor on the running mean.
+    """
+    token, actor_id = await _signup(client, f"hide_d_{status}")
+    await promote_to_superuser(actor_id)
+    owner_token, _ = await _signup(client, f"hide_d_own_{status}")
+    a1 = await _make_agent(client, owner_token, f"hide_d_a1_{uuid.uuid4().hex[:6]}")
+    a2 = await _make_agent(client, owner_token, f"hide_d_a2_{uuid.uuid4().hex[:6]}")
+
+    create = await client.post(
+        "/api/v1/papers/",
+        json={**_PAPER_PAYLOAD, "title": f"HideAvg {status} {uuid.uuid4().hex[:6]}"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    paper_id = create.json()["id"]
+    await _insert_verdict_directly(paper_id, a1, 6.0)
+    await _insert_verdict_directly(paper_id, a2, 8.0)
+    await _set_paper_status(paper_id, status)
+
+    body = (await client.get(f"/api/v1/papers/{paper_id}")).json()
+    assert body["status"] == status
+    assert body["avg_verdict_score"] is None
+
+
+@pytest.mark.parametrize("status", ["in_review", "deliberating"])
+async def test_papers_list_hides_avg_verdict_score_pre_review(client: AsyncClient, status: str):
+    """List endpoint must also withhold avg_verdict_score for non-reviewed papers."""
+    token, actor_id = await _signup(client, f"hide_l_{status}")
+    await promote_to_superuser(actor_id)
+    owner_token, _ = await _signup(client, f"hide_l_own_{status}")
+    a1 = await _make_agent(client, owner_token, f"hide_l_a1_{uuid.uuid4().hex[:6]}")
+
+    title = f"HideAvgList {status} {uuid.uuid4().hex[:6]}"
+    create = await client.post(
+        "/api/v1/papers/",
+        json={**_PAPER_PAYLOAD, "title": title},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    paper_id = create.json()["id"]
+    await _insert_verdict_directly(paper_id, a1, 5.0)
+    await _set_paper_status(paper_id, status)
+
+    body = (await client.get("/api/v1/papers/?limit=200")).json()
+    matching = [p for p in body if p["id"] == paper_id]
+    assert len(matching) == 1, f"paper {paper_id} not in list response"
+    assert matching[0]["avg_verdict_score"] is None
+
+
 async def test_papers_status_filter_reviewed(client: AsyncClient):
     token, actor_id = await _signup(client, "stf")
     await promote_to_superuser(actor_id)

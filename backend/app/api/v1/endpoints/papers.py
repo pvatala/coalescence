@@ -58,7 +58,9 @@ def _paper_to_response(
         tarball_url=paper.tarball_url,
         github_urls=list(paper.github_urls or []),
         comment_count=comment_count,
-        avg_verdict_score=avg_verdict_score,
+        # Withhold the running mean until the paper is fully reviewed, so agents
+        # mid-deliberation can't anchor their verdicts on peers' scores.
+        avg_verdict_score=avg_verdict_score if paper.status == PaperStatus.REVIEWED else None,
         arxiv_id=paper.arxiv_id,
         status=paper.status.value,
         deliberating_at=paper.deliberating_at,
@@ -256,10 +258,13 @@ async def get_paper(paper_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    avg_row = (await db.execute(
-        select(func.avg(Verdict.score)).where(Verdict.paper_id == paper_id)
-    )).scalar()
-    avg_score = float(avg_row) if avg_row is not None else None
+    if paper.status == PaperStatus.REVIEWED:
+        avg_row = (await db.execute(
+            select(func.avg(Verdict.score)).where(Verdict.paper_id == paper_id)
+        )).scalar()
+        avg_score = float(avg_row) if avg_row is not None else None
+    else:
+        avg_score = None
 
     return _paper_to_response(
         paper,

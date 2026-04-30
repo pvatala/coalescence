@@ -303,6 +303,42 @@ async def test_advance_transitions_deliberating_past_24h():
 
 
 @pytest.mark.anyio
+async def test_advance_force_window_flips_fresh_deliberating():
+    """With ``ignore_deliberation_window=True``, a paper still inside the
+    24h deliberation window flips to ``reviewed``. Without it, it stays put.
+    Used for one-off catch-up runs to wind down the competition.
+    """
+    submitter = await _insert_human("lc_force")
+    owner = await _insert_human("lc_force_own")
+    now = datetime.now()
+    pid = await _insert_paper(
+        submitter,
+        status="deliberating",
+        created_at=now - timedelta(hours=30),
+        deliberating_at=now - timedelta(hours=2),  # well inside the 24h gate
+    )
+    agent_a = await _insert_agent("lc_force_a", owner)
+    agent_b = await _insert_agent("lc_force_b", owner)
+    ca = await _insert_comment(pid, agent_a)
+    await _insert_comment(pid, agent_b)
+    await _insert_verdict(pid, agent_b, [ca])
+
+    # Without the flag → still deliberating.
+    await advance()
+    status, _ = await _status_of(pid)
+    assert status == "deliberating"
+
+    # With the flag → flips to reviewed and emits PAPER_REVIEWED notification.
+    _, to_reviewed, _ = await advance(ignore_deliberation_window=True)
+    assert to_reviewed >= 1
+    status, deliberating_at = await _status_of(pid)
+    assert status == "reviewed"
+    assert deliberating_at is not None  # preserved for history
+    submitter_rows = await _notifications_for(submitter, "PAPER_REVIEWED", pid)
+    assert len(submitter_rows) == 1
+
+
+@pytest.mark.anyio
 async def test_advance_main_gate_skips_before_threshold():
     submitter = await _insert_human("lc_advance_gate")
     owner = await _insert_human("lc_advance_gate_own")

@@ -73,6 +73,13 @@ WHERE status = 'deliberating'
 FOR UPDATE
 """
 
+SELECT_ALL_DELIBERATING_SQL = """
+SELECT id, title, submitter_id FROM paper
+WHERE status = 'deliberating'
+  AND deliberating_at IS NOT NULL
+FOR UPDATE
+"""
+
 UPDATE_TO_DELIBERATING_SQL = """
 UPDATE paper
 SET status = 'deliberating'::paperstatus,
@@ -283,8 +290,11 @@ async def _redistribute_karma(conn: AsyncConnection, paper_id: uuid.UUID) -> Non
         )
 
 
-async def _advance_to_reviewed(conn: AsyncConnection) -> int:
-    rows = (await conn.execute(text(SELECT_READY_FOR_REVIEWED_SQL))).all()
+async def _advance_to_reviewed(
+    conn: AsyncConnection, *, ignore_deliberation_window: bool = False
+) -> int:
+    sql = SELECT_ALL_DELIBERATING_SQL if ignore_deliberation_window else SELECT_READY_FOR_REVIEWED_SQL
+    rows = (await conn.execute(text(sql))).all()
     if not rows:
         return 0
 
@@ -310,25 +320,37 @@ async def _advance_to_reviewed(conn: AsyncConnection) -> int:
     return len(rows)
 
 
-async def advance() -> tuple[int, int, int]:
-    """Run all transitions. Returns ``(to_deliberating, to_reviewed, to_failed_review)``."""
+async def advance(*, ignore_deliberation_window: bool = False) -> tuple[int, int, int]:
+    """Run all transitions. Returns ``(to_deliberating, to_reviewed, to_failed_review)``.
+
+    ``ignore_deliberation_window=True`` drops the 24h gate on
+    ``deliberating → reviewed``, flipping every currently-deliberating
+    paper. Intended for one-off catch-up runs (e.g. winding down the
+    competition); leave ``False`` for the regular cron.
+    """
     engine = create_async_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
     try:
         async with engine.begin() as conn:
             to_deliberating, to_failed_review = await _advance_past_in_review(conn)
-            to_reviewed = await _advance_to_reviewed(conn)
+            to_reviewed = await _advance_to_reviewed(
+                conn, ignore_deliberation_window=ignore_deliberation_window
+            )
             return to_deliberating, to_reviewed, to_failed_review
     finally:
         await engine.dispose()
 
 
-async def _main(not_before: datetime | None) -> None:
+async def _main(
+    not_before: datetime | None, *, ignore_deliberation_window: bool = False
+) -> None:
     if not_before is not None:
         now = datetime.now(timezone.utc)
         if now < not_before:
             print(f"skipped: now={now.isoformat()} < not_before={not_before.isoformat()}")
             return
-    to_deliberating, to_reviewed, to_failed_review = await advance()
+    to_deliberating, to_reviewed, to_failed_review = await advance(
+        ignore_deliberation_window=ignore_deliberation_window
+    )
     print(f"in_review → deliberating:   {to_deliberating}")
     print(f"in_review → failed_review:  {to_failed_review}")
     print(f"deliberating → reviewed:    {to_reviewed}")
@@ -342,5 +364,10 @@ if __name__ == "__main__":
         default=None,
         help="ISO timestamp; no-op if current UTC time is earlier (e.g. 2026-04-24T16:00:00Z)",
     )
+    p.add_argument(
+        "--ignore-deliberation-window",
+        action="store_true",
+        help="Drop the 24h deliberation-window gate; flip every deliberating paper to reviewed.",
+    )
     args = p.parse_args()
-    asyncio.run(_main(args.not_before))
+    asyncio.run(_main(args.not_before, ignore_deliberation_window=args.ignore_deliberation_window))

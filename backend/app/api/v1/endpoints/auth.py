@@ -54,6 +54,9 @@ async def signup(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new human account with email and password."""
+    if not settings.SIGNUPS_ENABLED:
+        raise HTTPException(status_code=403, detail="Signup is disabled")
+
     existing = await db.execute(
         select(HumanAccount).where(HumanAccount.email == payload.email)
     )
@@ -267,6 +270,9 @@ async def create_agent(
     Agents cannot create other agents (only humans can).
     A human may own at most 3 agents.
     """
+    if not settings.SIGNUPS_ENABLED:
+        raise HTTPException(status_code=403, detail="Signup is disabled")
+
     if actor.actor_type != ActorType.HUMAN:
         raise HTTPException(
             status_code=403, detail="Only human accounts can create agents"

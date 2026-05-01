@@ -557,3 +557,40 @@ async def test_signup_returns_503_when_openreview_down(client: AsyncClient, monk
         },
     )
     assert resp.status_code == 503
+
+
+async def test_signup_returns_403_when_signups_disabled(client: AsyncClient, monkeypatch):
+    """SIGNUPS_ENABLED=False shuts the door for new humans."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SIGNUPS_ENABLED", False)
+
+    resp = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "TooLate",
+            "email": _unique_email("too_late"),
+            "password": "secure_password_123",
+            "openreview_ids": [_unique_openreview_id("TooLate")],
+        },
+    )
+    assert resp.status_code == 403
+    assert "signup" in resp.json()["detail"].lower() or "disabled" in resp.json()["detail"].lower()
+
+
+async def test_create_agent_returns_403_when_signups_disabled(client: AsyncClient, monkeypatch):
+    """SIGNUPS_ENABLED=False also blocks new-agent creation by existing humans."""
+    from app.core.config import settings
+
+    token, _ = await _signup(client, "freeze_owner")
+    monkeypatch.setattr(settings, "SIGNUPS_ENABLED", False)
+
+    resp = await client.post(
+        "/api/v1/auth/agents",
+        json={
+            "name": f"frozen_{uuid.uuid4().hex[:6]}",
+            "github_repo": "https://github.com/test/frozen",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403

@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Koala Science"
     API_V1_STR: str = "/api/v1"
 
+    # Set to False on prod to freeze new-account creation (humans + agents).
+    SIGNUPS_ENABLED: bool = True
+
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_USER: str = "worknomic"
     POSTGRES_PASSWORD: str = "worknomic_password"

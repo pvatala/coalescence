@@ -55,6 +55,7 @@ interface PaperPagePayload {
         facts?: Record<string, Record<string, unknown>>;
       }
     >;
+    paper?: Record<string, unknown>;
   };
   page_state: PageState;
 }
@@ -65,6 +66,7 @@ type AgentSlot = {
 };
 
 type Step =
+  | { kind: 'paper' }
   | { kind: 'argument'; commentId: string; agentId: string; factId: string }
   | { kind: 'comment'; commentId: string; agentId: string };
 
@@ -78,6 +80,43 @@ export default function PaperAnnotationPage() {
 
 const _emptySlot = (): AgentSlot => ({ comments: {}, facts: {} });
 
+function FactQuestions({
+  fact,
+  questions,
+  answers,
+  onChange,
+}: {
+  fact: Fact;
+  questions: Question[];
+  answers: Record<string, unknown>;
+  onChange: (questionId: string, value: unknown) => void;
+}) {
+  return (
+    <div className="space-y-3 pt-2 border-t">
+      {questions.map((q) => {
+        if (q.parent_question_id) {
+          const parent = answers[q.parent_question_id];
+          if (
+            JSON.stringify(parent) !== JSON.stringify(q.parent_value_match)
+          ) {
+            return null;
+          }
+        }
+        return (
+          <div key={q.id} className="space-y-1">
+            <div className="text-xs font-medium">{q.prompt}</div>
+            <QuestionInput
+              question={q}
+              value={answers[q.id]}
+              onChange={(v) => onChange(q.id, v)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PaperAnnotationContent() {
   const params = useParams();
   const batchId = params.batchId as string;
@@ -85,6 +124,7 @@ function PaperAnnotationContent() {
 
   const [payload, setPayload] = useState<PaperPagePayload | null>(null);
   const [byAgent, setByAgent] = useState<Record<string, AgentSlot>>({});
+  const [paperAnswers, setPaperAnswers] = useState<Record<string, unknown>>({});
   const [pageState, setPageState] = useState<PageState>('unstarted');
   const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -107,10 +147,21 @@ function PaperAnnotationContent() {
           };
         }
         setByAgent(normalized);
+        setPaperAnswers(p.existing_responses?.paper || {});
         setPageState(p.page_state);
       })
       .catch((e) => setError((e as Error).message));
   }, [batchId, paperId]);
+
+  const handlePaperChange = (questionId: string, value: unknown) => {
+    setPaperAnswers((prev) => ({ ...prev, [questionId]: value }));
+    if (pageState === 'submitted') setPageState('draft');
+    enqueue({
+      question_id: questionId,
+      paper_id: paperId,
+      response_value: value as Record<string, unknown>,
+    });
+  };
 
   const handleCommentChange = (
     agentId: string,
@@ -201,6 +252,10 @@ function PaperAnnotationContent() {
     return new Map(payload.feed.map((item) => [item.id, item]));
   }, [payload]);
 
+  const paperQuestions = useMemo(
+    () => payload?.questions.filter((q) => q.level === 'PAPER') ?? [],
+    [payload],
+  );
   const commentQuestions = useMemo(
     () => payload?.questions.filter((q) => q.level === 'COMMENT') ?? [],
     [payload],
@@ -213,6 +268,9 @@ function PaperAnnotationContent() {
   const steps = useMemo<Step[]>(() => {
     if (payload === null) return [];
     const out: Step[] = [];
+    if (paperQuestions.length > 0) {
+      out.push({ kind: 'paper' });
+    }
     for (const item of payload.feed) {
       if (!item.is_focal) continue;
       for (const f of item.facts) {
@@ -232,7 +290,7 @@ function PaperAnnotationContent() {
       }
     }
     return out;
-  }, [payload, commentQuestions]);
+  }, [payload, paperQuestions, commentQuestions]);
 
   if (error) return <div className="p-4 text-red-600">{error}</div>;
   if (payload === null)
@@ -241,13 +299,16 @@ function PaperAnnotationContent() {
   const totalSteps = steps.length;
   const safeIdx = Math.min(stepIdx, Math.max(0, totalSteps - 1));
   const step: Step | undefined = steps[safeIdx];
-  const currentItem = step ? feedById.get(step.commentId) : undefined;
+  const currentItem =
+    step && step.kind !== 'paper' ? feedById.get(step.commentId) : undefined;
   const currentFact =
     step?.kind === 'argument' && currentItem
       ? currentItem.facts.find((f) => f.fact_id === step.factId)
       : undefined;
   const slot =
-    step && byAgent[step.agentId] ? byAgent[step.agentId] : _emptySlot();
+    step && step.kind !== 'paper' && byAgent[step.agentId]
+      ? byAgent[step.agentId]
+      : _emptySlot();
   const isLast = totalSteps > 0 && safeIdx === totalSteps - 1;
 
   const goPrev = () => setStepIdx((i) => Math.max(0, i - 1));
@@ -324,7 +385,7 @@ function PaperAnnotationContent() {
                   </a>
                 )}
               </div>
-              <details className="mt-2">
+              <details className="mt-2" open={step?.kind === 'paper'}>
                 <summary className="cursor-pointer text-xs text-muted-foreground">
                   Abstract
                 </summary>
@@ -356,6 +417,25 @@ function PaperAnnotationContent() {
           {/* Right: questions for the current step (full height) */}
           <section className="border rounded bg-white overflow-y-auto p-4 min-h-0 flex flex-col">
             <div className="flex-1 space-y-3">
+              {step?.kind === 'paper' && (
+                <>
+                  <div className="text-xs text-muted-foreground">
+                    Before you start — paper-level questions
+                  </div>
+                  <div className="space-y-3 pt-2 border-t">
+                    {paperQuestions.map((q) => (
+                      <div key={q.id} className="space-y-1">
+                        <div className="text-xs font-medium">{q.prompt}</div>
+                        <QuestionInput
+                          question={q}
+                          value={paperAnswers[q.id]}
+                          onChange={(v) => handlePaperChange(q.id, v)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
               {step?.kind === 'argument' && currentFact && (
                 <>
                   <div className="text-xs text-muted-foreground">
@@ -364,26 +444,20 @@ function PaperAnnotationContent() {
                   <div className="text-sm border-l-2 border-primary pl-3 py-1 bg-stone-50">
                     {currentFact.fact_text}
                   </div>
-                  <div className="space-y-3 pt-2 border-t">
-                    {factQuestions.map((q) => (
-                      <div key={q.id} className="space-y-1">
-                        <div className="text-xs font-medium">{q.prompt}</div>
-                        <QuestionInput
-                          question={q}
-                          value={slot.facts[currentFact.fact_id]?.[q.id]}
-                          onChange={(v) =>
-                            handleFactChange(
-                              step.agentId,
-                              step.commentId,
-                              currentFact,
-                              q.id,
-                              v,
-                            )
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
+                  <FactQuestions
+                    fact={currentFact}
+                    questions={factQuestions}
+                    answers={slot.facts[currentFact.fact_id] || {}}
+                    onChange={(qid, v) =>
+                      handleFactChange(
+                        step.agentId,
+                        step.commentId,
+                        currentFact,
+                        qid,
+                        v,
+                      )
+                    }
+                  />
                 </>
               )}
               {step?.kind === 'comment' && currentItem && (

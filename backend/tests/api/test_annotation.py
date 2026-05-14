@@ -340,6 +340,40 @@ async def _fact_question_ids() -> list[str]:
     return [str(r[0]) for r in rows]
 
 
+async def _paper_question_ids() -> list[str]:
+    engine = await _engine()
+    try:
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT id FROM annotation_question "
+                "WHERE level = 'PAPER' AND retired_at IS NULL"
+            ))).all()
+    finally:
+        await engine.dispose()
+    return [str(r[0]) for r in rows]
+
+
+async def _answer_paper_qs(client, *, token, batch_id, paper_id):
+    """PATCH a stub paper-level answer for every PAPER question so submit
+    won't 422 on paper_responses_incomplete."""
+    qids = await _paper_question_ids()
+    if not qids:
+        return
+    upserts = [
+        {
+            "question_id": qid,
+            "paper_id": paper_id,
+            "response_value": {"value": True},
+        }
+        for qid in qids
+    ]
+    await client.patch(
+        "/api/v1/annotation/responses/draft",
+        json={"batch_id": batch_id, "upserts": upserts},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+
 async def _fact_question_id() -> str:
     """Return the FACT-level SINGLE_CHOICE question, seeding one if missing."""
     row = await _fetch_one(
@@ -726,6 +760,12 @@ async def test_submit_marks_page_finalized(client: AsyncClient):
     )
     assert resp.status_code == 200, resp.text
 
+    await _answer_paper_qs(
+        client,
+        token=setup["annot_token"],
+        batch_id=setup["batch_id"],
+        paper_id=setup["paper1"],
+    )
     submit = await client.post(
         "/api/v1/annotation/pages/submit",
         json={
@@ -741,7 +781,7 @@ async def test_submit_marks_page_finalized(client: AsyncClient):
         "WHERE annotator_id = :ann AND paper_id = :p",
         {"ann": setup["annot_id"], "p": setup["paper1"]},
     )
-    assert len(rows) == 1
+    assert len(rows) >= 1
     for (sa,) in rows:
         assert sa is not None
 
@@ -810,11 +850,10 @@ async def test_cannot_submit_unassigned_paper(client: AsyncClient):
     assert resp.status_code == 403
 
 
-async def test_questions_endpoint_excludes_agent_and_paper_levels(
+async def test_questions_endpoint_excludes_agent_level(
     client: AsyncClient,
 ):
     token, _ = await _signup_annotator(client, "qlist")
-    paper_qid = await _question_id("PAPER")
     await _question_id("COMMENT")
     aid = str(uuid.uuid4())
     await _exec(
@@ -834,14 +873,10 @@ async def test_questions_endpoint_excludes_agent_and_paper_levels(
     assert resp.status_code == 200, resp.text
     levels = {q["level"] for q in resp.json()}
     assert "AGENT" not in levels
-    assert "PAPER" not in levels
     assert "COMMENT" in levels
 
     await _exec(
         "DELETE FROM annotation_question WHERE id = :id", {"id": aid}
-    )
-    await _exec(
-        "DELETE FROM annotation_question WHERE id = :id", {"id": paper_qid}
     )
 
 
@@ -861,7 +896,6 @@ async def test_questions_endpoint_includes_fact_level(client: AsyncClient):
     body = resp.json()
     levels = {q["level"] for q in body}
     assert "FACT" in levels
-    assert "PAPER" not in levels
     assert "COMMENT" in levels
     fact_qs = [q for q in body if q["level"] == "FACT"]
     assert len(fact_qs) >= 1
@@ -1107,6 +1141,12 @@ async def test_submit_blocks_when_facts_incomplete(client: AsyncClient):
     )
     assert resp.status_code == 200, resp.text
 
+    await _answer_paper_qs(
+        client,
+        token=setup["annot_token"],
+        batch_id=setup["batch_id"],
+        paper_id=setup["paper1"],
+    )
     submit = await client.post(
         "/api/v1/annotation/pages/submit",
         json={
@@ -1153,6 +1193,12 @@ async def test_submit_succeeds_when_all_facts_answered(client: AsyncClient):
     )
     assert resp.status_code == 200, resp.text
 
+    await _answer_paper_qs(
+        client,
+        token=setup["annot_token"],
+        batch_id=setup["batch_id"],
+        paper_id=setup["paper1"],
+    )
     submit = await client.post(
         "/api/v1/annotation/pages/submit",
         json={

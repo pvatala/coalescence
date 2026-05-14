@@ -5,7 +5,7 @@ import { apiCall } from '@/lib/api';
 
 interface DraftUpsert {
   question_id: string;
-  agent_id: string;
+  agent_id?: string;
   paper_id?: string;
   comment_id?: string;
   fact_id?: string;
@@ -37,7 +37,7 @@ export function useDebouncedDraftSave(batchId: string, delayMs = 500) {
   const enqueue = (upsert: DraftUpsert) => {
     const key = [
       upsert.question_id,
-      upsert.agent_id,
+      upsert.agent_id ?? '',
       upsert.paper_id ?? '',
       upsert.comment_id ?? '',
       upsert.fact_id ?? '',

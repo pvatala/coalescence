@@ -211,6 +211,23 @@ async def _cleanup_batch(name: str) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+async def _isolate_annotation_pool_tests():
+    """Truncate agent/paper/comment/verdict rows before each test.
+
+    The MIP must be feasible across *every* eligible agent in the DB, so
+    leftover rows from prior tests would create infeasible slates. Tests
+    own their own minimal universe.
+    """
+    await _exec(
+        "TRUNCATE annotation_assignment, annotation_batch_agent_paper, "
+        "annotation_batch_agent, annotation_batch_paper, annotation_batch, "
+        "verdict, comment, paper, agent, human_account, actor "
+        "RESTART IDENTITY CASCADE"
+    )
+    yield
+
+
 # ---------------- tests ----------------
 
 
@@ -227,6 +244,8 @@ async def test_excludes_agents_with_fewer_than_min_papers():
         seed=42,
         min_papers=5,
         sample_size=2,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[ann1_email, ann2_email],
         dry_run=True,
     )
@@ -247,6 +266,8 @@ async def test_each_agent_gets_exactly_k_papers_in_sample():
         seed=42,
         min_papers=5,
         sample_size=4,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[ann1_email, ann2_email],
         dry_run=True,
     )
@@ -273,6 +294,8 @@ async def test_pool_is_subset_of_union_of_agent_papers():
         seed=42,
         min_papers=5,
         sample_size=3,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[ann1_email, ann2_email],
         dry_run=True,
     )
@@ -286,8 +309,9 @@ async def test_pool_is_subset_of_union_of_agent_papers():
 
 
 async def test_pool_reuses_shared_papers():
-    """Greedy compression: if two agents fully overlap, the union of
-    their per-agent samples should be ≤ K shared papers."""
+    """MIP compression: if two agents fully overlap on 5 papers, with
+    K=5 and ``min_comments_per_paper=2`` (cap=2), the optimal pool is
+    exactly the 5 shared papers."""
     name = f"batch-share-{uuid.uuid4().hex[:6]}"
     _, ann1_email = await _insert_human_annotator("sh1")
     _, ann2_email = await _insert_human_annotator("sh2")
@@ -307,6 +331,8 @@ async def test_pool_reuses_shared_papers():
         seed=42,
         min_papers=5,
         sample_size=5,
+        cap=2,
+        min_comments_per_paper=2,
         annotator_emails=[ann1_email, ann2_email],
         dry_run=True,
     )
@@ -314,8 +340,8 @@ async def test_pool_reuses_shared_papers():
     assert len(plan.agent_samples[agent_a]) == 5
     assert len(plan.agent_samples[agent_b]) == 5
     union_ab = set(plan.agent_samples[agent_a]) | set(plan.agent_samples[agent_b])
-    assert union_ab <= set(shared)
-    assert len(union_ab) <= 5
+    assert union_ab == set(shared)
+    assert set(plan.pool) == set(shared)
 
 
 async def test_sample_is_deterministic_given_seed():
@@ -331,6 +357,8 @@ async def test_sample_is_deterministic_given_seed():
         seed=42,
         min_papers=5,
         sample_size=3,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[ann1_email, ann2_email],
         dry_run=True,
     )
@@ -339,6 +367,8 @@ async def test_sample_is_deterministic_given_seed():
         seed=42,
         min_papers=5,
         sample_size=3,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[ann1_email, ann2_email],
         dry_run=True,
     )
@@ -366,6 +396,8 @@ async def test_score_histogram_excludes_non_reviewed_papers():
         seed=42,
         min_papers=5,
         sample_size=3,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[ann1_email, ann2_email],
         dry_run=True,
     )
@@ -397,6 +429,8 @@ async def test_each_paper_has_exactly_annotators_per_paper():
         seed=42,
         min_papers=5,
         sample_size=2,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[e1, e2, e3],
         annotators_per_paper=2,
         dry_run=True,
@@ -419,6 +453,8 @@ async def test_idempotency_rejects_duplicate_name():
             seed=42,
             min_papers=5,
             sample_size=2,
+            cap=2,
+            min_comments_per_paper=1,
             annotator_emails=[e1, e2],
             dry_run=False,
         )
@@ -429,6 +465,8 @@ async def test_idempotency_rejects_duplicate_name():
                 seed=42,
                 min_papers=5,
                 sample_size=2,
+                cap=2,
+                min_comments_per_paper=1,
                 annotator_emails=[e1, e2],
                 dry_run=False,
             )
@@ -452,6 +490,8 @@ async def test_dry_run_does_not_write():
         seed=42,
         min_papers=5,
         sample_size=2,
+        cap=2,
+        min_comments_per_paper=1,
         annotator_emails=[e1, e2],
         dry_run=True,
     )
@@ -460,6 +500,75 @@ async def test_dry_run_does_not_write():
         "SELECT count(*) FROM annotation_batch WHERE name = :n", {"n": name}
     ))[0][0]
     assert after == 0
+
+
+async def test_dry_run_with_n_annotators_uses_synthetic_ids():
+    """``--n-annotators`` skips email resolution so dry-runs work
+    without any annotator rows in the DB."""
+    name = f"batch-syn-{uuid.uuid4().hex[:6]}"
+    await _setup_agent_with_n_papers(5)
+    await _setup_agent_with_n_papers(5)
+
+    plan = await build(
+        name=name,
+        seed=0,
+        min_papers=5,
+        sample_size=3,
+        cap=2,
+        min_comments_per_paper=1,
+        n_annotators=4,
+        annotators_per_paper=2,
+        dry_run=True,
+    )
+
+    assert len(plan.annotator_ids) == 4
+    assert plan.annotator_emails == []
+    for ann_ids in plan.paper_assignments.values():
+        assert len(ann_ids) == 2
+        assert len(set(ann_ids)) == 2
+
+
+async def test_n_annotators_skips_annotation_assignment_writes():
+    name = f"batch-no-ann-{uuid.uuid4().hex[:6]}"
+    await _setup_agent_with_n_papers(4)
+    await _setup_agent_with_n_papers(4)
+
+    try:
+        await build(
+            name=name,
+            seed=0,
+            min_papers=4,
+            sample_size=3,
+            cap=2,
+            min_comments_per_paper=1,
+            n_annotators=4,
+            annotators_per_paper=2,
+            dry_run=False,
+        )
+
+        engine = create_async_engine(str(settings.DATABASE_URL))
+        try:
+            async with engine.begin() as conn:
+                batch_row = (
+                    await conn.execute(
+                        text("SELECT id FROM annotation_batch WHERE name=:n"),
+                        {"n": name},
+                    )
+                ).one()
+                n_assignments = (
+                    await conn.execute(
+                        text(
+                            "SELECT COUNT(*) FROM annotation_assignment "
+                            "WHERE batch_id=:b"
+                        ),
+                        {"b": batch_row[0]},
+                    )
+                ).scalar_one()
+                assert n_assignments == 0
+        finally:
+            await engine.dispose()
+    finally:
+        await _cleanup_batch(name)
 
 
 async def test_persist_writes_expected_row_counts():
@@ -476,6 +585,8 @@ async def test_persist_writes_expected_row_counts():
             seed=7,
             min_papers=4,
             sample_size=3,
+            cap=2,
+            min_comments_per_paper=1,
             annotator_emails=[e1, e2],
             annotators_per_paper=2,
             dry_run=False,

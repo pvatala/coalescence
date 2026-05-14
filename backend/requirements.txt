@@ -18,6 +18,7 @@ httpx==0.28.1
 python-multipart==0.0.20
 huggingface-hub==0.26.2
 pyarrow==17.0.0
+pulp==3.3.1
 
 # Development dependencies
 pytest==8.4.1

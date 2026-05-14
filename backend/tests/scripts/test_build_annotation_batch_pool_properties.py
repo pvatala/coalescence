@@ -1,114 +1,165 @@
-"""Property-style tests for the greedy pool builder.
+"""Property-style tests for the MIP pool builder.
 
-Direct tests of the pure ``_greedy_pool`` helper — no DB required.
+Direct tests of the pure ``_mip_pool`` helper — no DB required.
 """
-import random
 import uuid
 
-from scripts.build_annotation_batch import _greedy_pool
+import pytest
+
+from scripts.build_annotation_batch import _mip_pool
 
 
 def _ids(n: int) -> list[uuid.UUID]:
     return [uuid.uuid4() for _ in range(n)]
 
 
-def test_pool_size_in_bounds():
-    """Pool size is in [K, N_agents * K] for any seed."""
-    K = 5
-    n_agents = 6
-    all_papers = _ids(50)
-
-    agent_papers: dict[uuid.UUID, list[uuid.UUID]] = {}
-    rng = random.Random(0)
-    agent_order: list[uuid.UUID] = []
-    for _ in range(n_agents):
-        aid = uuid.uuid4()
-        agent_order.append(aid)
-        agent_papers[aid] = rng.sample(all_papers, 20)
-
-    pool, samples = _greedy_pool(agent_order, agent_papers, K, random.Random(1))
-
-    assert K <= len(pool) <= n_agents * K
-    for aid in agent_order:
-        assert len(samples[aid]) == K
+def _make_counts(
+    agent_papers: dict[uuid.UUID, list[uuid.UUID]], n: int
+) -> dict[tuple[uuid.UUID, uuid.UUID], int]:
+    return {
+        (a, p): n
+        for a, papers in agent_papers.items()
+        for p in papers
+    }
 
 
-def test_every_agent_has_at_least_k_papers_in_pool():
-    """The greedy invariant: after build, |papers(A) ∩ pool| >= K for
-    every A."""
+def test_every_agent_gets_exactly_k_papers():
     K = 4
-    n_agents = 8
-    all_papers = _ids(30)
+    cap = 2
+    min_comments = 3
 
-    agent_papers: dict[uuid.UUID, list[uuid.UUID]] = {}
-    rng = random.Random(2)
-    agent_order: list[uuid.UUID] = []
-    for _ in range(n_agents):
-        aid = uuid.uuid4()
-        agent_order.append(aid)
-        agent_papers[aid] = rng.sample(all_papers, 15)
+    shared = _ids(8)
+    agents = _ids(5)
+    agent_papers = {a: list(shared) for a in agents}
+    counts = _make_counts(agent_papers, 5)
 
-    pool, samples = _greedy_pool(agent_order, agent_papers, K, random.Random(3))
-    pool_set = set(pool)
+    pool, samples = _mip_pool(agents, agent_papers, counts, K, cap, min_comments)
 
-    for aid in agent_order:
-        have = len([p for p in agent_papers[aid] if p in pool_set])
-        assert have >= K
-        assert len(samples[aid]) == K
-        for p in samples[aid]:
-            assert p in pool_set
+    for a in agents:
+        assert len(samples[a]) == K
+        assert len(set(samples[a])) == K
+        for p in samples[a]:
+            assert p in pool
 
 
-def test_pool_compression_when_papers_are_shared():
-    """If two agents fully overlap, the pool should be exactly K."""
+def test_pool_papers_meet_min_comments_constraint():
     K = 3
-    shared = _ids(10)
+    cap = 2
+    min_comments = 4
 
-    agent_a = uuid.uuid4()
-    agent_b = uuid.uuid4()
-    agent_papers = {agent_a: list(shared), agent_b: list(shared)}
-    pool, samples = _greedy_pool(
-        [agent_a, agent_b], agent_papers, K, random.Random(42)
+    shared = _ids(6)
+    agents = _ids(4)
+    agent_papers = {a: list(shared) for a in agents}
+    counts = _make_counts(agent_papers, 10)
+
+    pool, samples = _mip_pool(agents, agent_papers, counts, K, cap, min_comments)
+
+    paper_capped: dict[uuid.UUID, int] = {p: 0 for p in pool}
+    for a, picks in samples.items():
+        for p in picks:
+            raw = counts[(a, p)]
+            paper_capped[p] += min(cap, raw)
+    for p in pool:
+        assert paper_capped[p] >= min_comments
+
+
+def test_pool_is_minimized_on_hand_built_instance():
+    """Three agents fully share six papers; with K=3, cap=2, min=4 the
+    optimal pool has exactly 3 papers (3 agents × 2 capped comments = 6
+    ≥ 4 per paper, and each agent needs exactly K=3 distinct picks)."""
+    K = 3
+    cap = 2
+    min_comments = 4
+
+    shared = _ids(6)
+    a1, a2, a3 = _ids(3)
+    agent_papers = {a1: list(shared), a2: list(shared), a3: list(shared)}
+    counts = _make_counts(agent_papers, 5)
+
+    pool, samples = _mip_pool(
+        [a1, a2, a3], agent_papers, counts, K, cap, min_comments
     )
 
     assert len(pool) == K
-    assert set(samples[agent_a]) <= set(pool)
-    assert set(samples[agent_b]) <= set(pool)
+    assert set(pool) <= set(shared)
+    for a in (a1, a2, a3):
+        assert set(samples[a]) == set(pool)
 
 
-def test_pool_no_compression_when_disjoint():
-    """Two agents with disjoint papers => pool = 2K."""
+def test_single_agent_pool_equals_K_when_cap_meets_min():
+    """One agent, cap=2, min_comments=2: each picked paper is covered by
+    its own (capped=2) contribution alone, so the MIP picks exactly K
+    papers."""
     K = 3
-    a_papers = _ids(10)
-    b_papers = _ids(10)
+    cap = 2
+    min_comments = 2
 
-    agent_a = uuid.uuid4()
-    agent_b = uuid.uuid4()
-    agent_papers = {agent_a: a_papers, agent_b: b_papers}
-    pool, _ = _greedy_pool(
-        [agent_a, agent_b], agent_papers, K, random.Random(7)
-    )
+    a = uuid.uuid4()
+    papers = _ids(5)
+    agent_papers = {a: papers}
+    counts = {(a, p): 4 for p in papers}
 
-    assert len(pool) == 2 * K
+    pool, samples = _mip_pool([a], agent_papers, counts, K, cap, min_comments)
+
+    assert len(pool) == K
+    assert set(samples[a]) == set(pool)
 
 
-def test_pool_deterministic_for_same_seed():
+def test_pool_deterministic_via_uuid_sort():
     K = 3
-    all_papers = _ids(20)
-    rng_init = random.Random(99)
-    n_agents = 5
-    agent_papers: dict[uuid.UUID, list[uuid.UUID]] = {}
-    agent_order: list[uuid.UUID] = []
-    for _ in range(n_agents):
-        aid = uuid.uuid4()
-        agent_order.append(aid)
-        agent_papers[aid] = rng_init.sample(all_papers, 10)
+    cap = 2
+    min_comments = 3
 
-    pool_a, samples_a = _greedy_pool(
-        agent_order, agent_papers, K, random.Random(123)
+    shared = _ids(8)
+    agents = _ids(3)
+    agent_papers = {a: list(shared) for a in agents}
+    counts = _make_counts(agent_papers, 5)
+
+    pool_a, samples_a = _mip_pool(
+        agents, agent_papers, counts, K, cap, min_comments
     )
-    pool_b, samples_b = _greedy_pool(
-        agent_order, agent_papers, K, random.Random(123)
+    pool_b, samples_b = _mip_pool(
+        agents, agent_papers, counts, K, cap, min_comments
     )
+    assert pool_a == sorted(pool_a)
     assert pool_a == pool_b
-    assert samples_a == samples_b
+    for a in agents:
+        assert samples_a[a] == sorted(samples_a[a])
+        assert samples_a[a] == samples_b[a]
+
+
+def test_infeasible_when_agent_has_fewer_than_k_papers():
+    K = 4
+    cap = 2
+    min_comments = 3
+
+    a1 = uuid.uuid4()
+    a2 = uuid.uuid4()
+    papers_a1 = _ids(4)
+    papers_a2 = _ids(2)
+    agent_papers = {a1: papers_a1, a2: papers_a2}
+    counts = _make_counts(agent_papers, 5)
+
+    with pytest.raises(RuntimeError, match=str(a2)):
+        _mip_pool([a1, a2], agent_papers, counts, K, cap, min_comments)
+
+
+def test_disjoint_agents_pool_equals_n_agents_times_k():
+    """Two agents with disjoint paper sets => pool = 2K because no
+    sharing is possible. Each agent's K papers must each meet the
+    min-comments constraint via that agent's own capped count."""
+    K = 3
+    cap = 3
+    min_comments = 3
+
+    a1 = uuid.uuid4()
+    a2 = uuid.uuid4()
+    papers_a1 = _ids(5)
+    papers_a2 = _ids(5)
+    agent_papers = {a1: papers_a1, a2: papers_a2}
+    counts = _make_counts(agent_papers, 10)
+
+    pool, samples = _mip_pool(
+        [a1, a2], agent_papers, counts, K, cap, min_comments
+    )
+    assert len(pool) == 2 * K

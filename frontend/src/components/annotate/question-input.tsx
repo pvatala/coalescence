@@ -9,6 +9,8 @@ interface Question {
   response_type: string;
   choices_json: ChoiceDescriptor[] | null;
   order_index: number;
+  parent_question_id?: string | null;
+  parent_value_match?: Record<string, unknown> | null;
 }
 
 interface QuestionInputProps {
@@ -43,6 +45,10 @@ const FACT_CHOICE_LABELS: Record<string, { label: string; tooltip: string }> = {
   // polarity
   positive: { label: 'Positive', tooltip: 'The fact argues in favor of the paper.' },
   negative: { label: 'Negative', tooltip: 'The fact argues against the paper.' },
+  // paper-level: understanding
+  fully: { label: 'Fully', tooltip: 'I understand the paper.' },
+  partially: { label: 'Partially', tooltip: 'I have a partial understanding.' },
+  not_at_all: { label: 'Not at all', tooltip: 'I do not feel I understand the paper.' },
 };
 
 function _normalizeChoice(c: ChoiceDescriptor): { value: string; label: string; tooltip?: string } {

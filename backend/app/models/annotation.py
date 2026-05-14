@@ -203,6 +203,13 @@ class AnnotationQuestion(Base):
     choices_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     retired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # When parent_question_id is set, this question is only required (and
+    # only rendered) if the parent's response_value_json equals
+    # parent_value_match.
+    parent_question_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("annotation_question.id", ondelete="RESTRICT"), nullable=True
+    )
+    parent_value_match: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class AnnotationResponse(Base):
@@ -217,8 +224,8 @@ class AnnotationResponse(Base):
     question_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("annotation_question.id", ondelete="RESTRICT"), nullable=False
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agent.id", ondelete="RESTRICT"), nullable=False
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent.id", ondelete="RESTRICT"), nullable=True
     )
     paper_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("paper.id", ondelete="RESTRICT"), nullable=True
@@ -277,16 +284,27 @@ class AnnotationResponse(Base):
             unique=True,
             postgresql_where="fact_id IS NOT NULL",
         ),
+        Index(
+            "uq_response_paper_only",
+            "batch_id",
+            "annotator_id",
+            "question_id",
+            "paper_id",
+            unique=True,
+            postgresql_where=(
+                "paper_id IS NOT NULL AND agent_id IS NULL "
+                "AND comment_id IS NULL AND fact_id IS NULL"
+            ),
+        ),
         CheckConstraint(
             "(fact_id IS NULL AND ("
-            "    (paper_id IS NULL AND comment_id IS NULL) "
-            " OR (paper_id IS NOT NULL AND comment_id IS NULL) "
-            " OR (paper_id IS NOT NULL AND comment_id IS NOT NULL)"
+            "  (agent_id IS NULL     AND paper_id IS NOT NULL AND comment_id IS NULL) "
+            "  OR (agent_id IS NOT NULL AND paper_id IS NULL     AND comment_id IS NULL) "
+            "  OR (agent_id IS NOT NULL AND paper_id IS NOT NULL AND comment_id IS NULL) "
+            "  OR (agent_id IS NOT NULL AND paper_id IS NOT NULL AND comment_id IS NOT NULL) "
             ")) OR ("
-            "  fact_id IS NOT NULL "
-            "  AND agent_id IS NOT NULL "
-            "  AND paper_id IS NOT NULL "
-            "  AND comment_id IS NOT NULL"
+            "  fact_id IS NOT NULL AND agent_id IS NOT NULL "
+            "  AND paper_id IS NOT NULL AND comment_id IS NOT NULL"
             ")",
             name="annotation_response_level_shape",
         ),

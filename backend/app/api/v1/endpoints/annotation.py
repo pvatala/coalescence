@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import require_annotator
@@ -73,6 +73,8 @@ class _QuestionRow(BaseModel):
     response_type: str
     choices_json: Optional[list] = None
     order_index: int
+    parent_question_id: Optional[uuid.UUID] = None
+    parent_value_match: Optional[dict] = None
 
 
 class _PaperCardPayload(BaseModel):
@@ -118,7 +120,7 @@ class _PaperPagePayload(BaseModel):
 
 class _DraftUpsertItem(BaseModel):
     question_id: uuid.UUID
-    agent_id: uuid.UUID
+    agent_id: Optional[uuid.UUID] = None  # null for paper-level responses
     paper_id: uuid.UUID
     comment_id: Optional[uuid.UUID] = None
     fact_id: Optional[uuid.UUID] = None
@@ -220,6 +222,8 @@ def _question_to_row(q: AnnotationQuestion) -> _QuestionRow:
         else str(q.response_type),
         choices_json=q.choices_json,
         order_index=q.order_index,
+        parent_question_id=q.parent_question_id,
+        parent_value_match=q.parent_value_match,
     )
 
 
@@ -264,6 +268,7 @@ async def list_questions(
             AnnotationQuestion.retired_at.is_(None),
             AnnotationQuestion.level.in_(
                 [
+                    AnnotationLevel.PAPER,
                     AnnotationLevel.COMMENT,
                     AnnotationLevel.FACT,
                 ]
@@ -573,6 +578,7 @@ async def get_paper_page(
                 AnnotationQuestion.retired_at.is_(None),
                 AnnotationQuestion.level.in_(
                     [
+                        AnnotationLevel.PAPER,
                         AnnotationLevel.COMMENT,
                         AnnotationLevel.FACT,
                     ]
@@ -588,14 +594,20 @@ async def get_paper_page(
                 AnnotationResponse.annotator_id == annotator.id,
                 AnnotationResponse.batch_id == batch_id,
                 AnnotationResponse.paper_id == paper_id,
-                AnnotationResponse.agent_id.in_(focal_agent_ids)
-                if focal_agent_ids
-                else False,
+                or_(
+                    AnnotationResponse.agent_id.is_(None),
+                    AnnotationResponse.agent_id.in_(focal_agent_ids)
+                    if focal_agent_ids
+                    else AnnotationResponse.agent_id.is_(None),
+                ),
             )
         )
     ).scalars().all()
-    existing: dict = {"by_agent": {}}
+    existing: dict = {"by_agent": {}, "paper": {}}
     for r in existing_rows:
+        if r.agent_id is None:
+            existing["paper"][str(r.question_id)] = r.response_value_json
+            continue
         agent_key = str(r.agent_id)
         slot = existing["by_agent"].setdefault(
             agent_key,
@@ -709,6 +721,8 @@ async def upsert_draft_responses(
     seen_agent_paper: set[tuple[uuid.UUID, uuid.UUID]] = set()
     bap_id_by_agent_paper: dict[tuple[uuid.UUID, uuid.UUID], uuid.UUID] = {}
     for u in body.upserts:
+        if u.agent_id is None:
+            continue  # paper-only response, no per-agent authorization needed
         key = (u.agent_id, u.paper_id)
         if key in seen_agent_paper:
             continue
@@ -738,7 +752,7 @@ async def upsert_draft_responses(
     for u in body.upserts:
         if u.fact_id is None:
             continue
-        if u.comment_id is None:
+        if u.comment_id is None or u.agent_id is None:
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -779,6 +793,19 @@ async def upsert_draft_responses(
                         AnnotationResponse.annotator_id == annotator.id,
                         AnnotationResponse.question_id == u.question_id,
                         AnnotationResponse.fact_id == u.fact_id,
+                    )
+                )
+            ).scalar_one_or_none()
+        elif u.comment_id is None and u.agent_id is None:
+            existing = (
+                await db.execute(
+                    select(AnnotationResponse).where(
+                        AnnotationResponse.annotator_id == annotator.id,
+                        AnnotationResponse.question_id == u.question_id,
+                        AnnotationResponse.agent_id.is_(None),
+                        AnnotationResponse.paper_id == u.paper_id,
+                        AnnotationResponse.comment_id.is_(None),
+                        AnnotationResponse.fact_id.is_(None),
                     )
                 )
             ).scalar_one_or_none()
@@ -850,6 +877,40 @@ async def submit_page(
         db, batch_paper_id=bp.id, annotator_id=annotator.id
     )
 
+    # PAPER-level intro questions must all be answered before submit.
+    paper_qids: set[uuid.UUID] = set(
+        (await db.execute(
+            select(AnnotationQuestion.id).where(
+                AnnotationQuestion.level == AnnotationLevel.PAPER,
+                AnnotationQuestion.retired_at.is_(None),
+            )
+        )).scalars().all()
+    )
+    if paper_qids:
+        answered_paper_qids: set[uuid.UUID] = set(
+            (await db.execute(
+                select(AnnotationResponse.question_id).where(
+                    AnnotationResponse.annotator_id == annotator.id,
+                    AnnotationResponse.batch_id == body.batch_id,
+                    AnnotationResponse.paper_id == body.paper_id,
+                    AnnotationResponse.agent_id.is_(None),
+                    AnnotationResponse.comment_id.is_(None),
+                    AnnotationResponse.fact_id.is_(None),
+                    AnnotationResponse.question_id.in_(paper_qids),
+                    AnnotationResponse.response_value_json.is_not(None),
+                )
+            )).scalars().all()
+        )
+        missing_paper = paper_qids - answered_paper_qids
+        if missing_paper:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "paper_responses_incomplete",
+                    "missing_question_ids": [str(q) for q in sorted(missing_paper)],
+                },
+            )
+
     sampled_fact_rows = (
         await db.execute(
             select(AnnotationBatchFact.comment_fact_id)
@@ -864,20 +925,26 @@ async def submit_page(
     sampled_fact_ids: set[uuid.UUID] = set(sampled_fact_rows)
 
     if sampled_fact_ids:
-        fact_question_ids: set[uuid.UUID] = set(
-            (await db.execute(
-                select(AnnotationQuestion.id).where(
-                    AnnotationQuestion.level == AnnotationLevel.FACT,
-                    AnnotationQuestion.retired_at.is_(None),
-                )
-            )).scalars().all()
-        )
+        fact_questions = (await db.execute(
+            select(AnnotationQuestion).where(
+                AnnotationQuestion.level == AnnotationLevel.FACT,
+                AnnotationQuestion.retired_at.is_(None),
+            )
+        )).scalars().all()
+        fact_question_ids: set[uuid.UUID] = {q.id for q in fact_questions}
+        gates: dict[uuid.UUID, tuple[uuid.UUID, dict | None]] = {
+            q.id: (q.parent_question_id, q.parent_value_match)
+            for q in fact_questions
+            if q.parent_question_id is not None
+        }
+
         if fact_question_ids:
             response_rows = (
                 await db.execute(
                     select(
                         AnnotationResponse.fact_id,
                         AnnotationResponse.question_id,
+                        AnnotationResponse.response_value_json,
                     ).where(
                         AnnotationResponse.annotator_id == annotator.id,
                         AnnotationResponse.batch_id == body.batch_id,
@@ -888,12 +955,26 @@ async def submit_page(
                     )
                 )
             ).all()
-            answered_by_fact: dict[uuid.UUID, set[uuid.UUID]] = {}
-            for fid, qid in response_rows:
-                answered_by_fact.setdefault(fid, set()).add(qid)
+            answered_by_fact: dict[uuid.UUID, dict[uuid.UUID, dict]] = {}
+            for fid, qid, val in response_rows:
+                answered_by_fact.setdefault(fid, {})[qid] = val
+
+            def required_for_fact(fid: uuid.UUID) -> set[uuid.UUID]:
+                answers = answered_by_fact.get(fid, {})
+                req = set()
+                for qid in fact_question_ids:
+                    if qid in gates:
+                        parent_qid, want = gates[qid]
+                        if answers.get(parent_qid) != want:
+                            continue
+                    req.add(qid)
+                return req
+
             missing = sorted(
                 fid for fid in sampled_fact_ids
-                if not fact_question_ids.issubset(answered_by_fact.get(fid, set()))
+                if not required_for_fact(fid).issubset(
+                    answered_by_fact.get(fid, {}).keys()
+                )
             )
             if missing:
                 raise HTTPException(
